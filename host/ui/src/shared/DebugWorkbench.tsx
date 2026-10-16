@@ -32,7 +32,16 @@ type PanelState = { kind: PanelKind; imgSel: string };
 type LogLine = { level: string; msg: string; ts?: number; t?: number };
 type ViewMode = "sliding" | "centered" | "paused";
 
-const COLORS = ["#4fc3f7", "#ffb74d", "#81c784", "#e57373", "#ba68c8", "#4dd0e1", "#fff176", "#a1887f"];
+const COLORS = [
+  "#00f0ff", // Cyber Cyan
+  "#10b981", // Emerald Green
+  "#f59e0b", // Laser Amber
+  "#8b5cf6", // Electric Violet
+  "#ec4899", // Neon Pink
+  "#06b6d4", // Electric Teal
+  "#eab308", // Yellow
+  "#3b82f6", // Quantum Blue
+];
 
 function fillEmptyImgSels(panels: PanelState[], fallback: string): PanelState[] {
   if (!fallback) return panels;
@@ -748,13 +757,21 @@ function ImagePane({
     <div className="img-pane">
       <div className="img-bar">
         <select value={sel} onChange={(e) => onSel(e.target.value)}>
-          {names.length === 0 && <option value="">无图像</option>}
+          {names.length === 0 && <option value="">无图像流</option>}
           {names.map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
           ))}
         </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: "8px", alignItems: "center" }}>
+          <span className="state-tag s-connected" style={{ fontSize: "10px", padding: "1px 6px" }}>
+            VISION HUD
+          </span>
+          <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }}>
+            {scale !== 1 ? `${Math.round(scale * 100)}%` : "1:1"}
+          </span>
+        </div>
       </div>
       <div
         className="img-view"
@@ -781,12 +798,39 @@ function ImagePane({
         }}
       >
         {url ? (
-          <img
-            src={url}
-            alt=""
-            draggable={false}
-            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
-          />
+          <>
+            <img
+              src={url}
+              alt=""
+              draggable={false}
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
+            />
+            {/* Cyber Vision HUD Overlay */}
+            <div className="hud-crosshair">
+              <span className="hud-corner hud-corner-tl" />
+              <span className="hud-corner hud-corner-tr" />
+              <span className="hud-corner hud-corner-bl" />
+              <span className="hud-corner hud-corner-br" />
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                bottom: "10px",
+                left: "12px",
+                background: "rgba(0,0,0,0.65)",
+                backdropFilter: "blur(8px)",
+                padding: "2px 8px",
+                borderRadius: "4px",
+                border: "1px solid rgba(255,255,255,0.1)",
+                fontSize: "10px",
+                fontFamily: "var(--mono)",
+                color: "var(--cyan)",
+                pointerEvents: "none",
+              }}
+            >
+              CAMERA HUD · 60 FPS STREAM
+            </div>
+          </>
         ) : (
           <span className="mono muted">{sel ? `等待 ${sel}…` : "等待图像…"}</span>
         )}
