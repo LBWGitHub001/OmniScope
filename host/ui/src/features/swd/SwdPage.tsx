@@ -7,14 +7,14 @@ import { useSSE } from "../../shared/useSSE";
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend);
 
 const COLORS = [
-  "#d6f56a",
-  "#7ec8ff",
-  "#ef7d6a",
-  "#e6c15a",
-  "#c9a0ff",
-  "#8fdf7a",
-  "#ff9ec8",
-  "#7ee0d0",
+  "#00f0ff", // Cyber Cyan
+  "#10b981", // Emerald Telemetry Green
+  "#f59e0b", // Laser Amber
+  "#8b5cf6", // Electric Violet
+  "#ec4899", // Neon Pink
+  "#06b6d4", // Electric Teal
+  "#eab308", // Bright Yellow
+  "#3b82f6", // Quantum Blue
 ];
 
 type SymbolRow = {
@@ -57,6 +57,37 @@ type ElfMatch = {
   file?: string;
 };
 
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data || data.length < 2) {
+    return <div style={{ width: 70, height: 20, borderBottom: "1px dashed rgba(255,255,255,0.1)" }} />;
+  }
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const width = 74;
+  const height = 22;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 6) - 3;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const pathD = `M ${points.join(" L ")}`;
+
+  return (
+    <svg width={width} height={height} style={{ overflow: "visible", display: "block" }}>
+      <path
+        d={pathD}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ filter: `drop-shadow(0 0 4px ${color}88)` }}
+      />
+    </svg>
+  );
+}
+
 export function SwdPage() {
   const { base } = useInstance();
   const [snap, setSnap] = useState<SwdSnapshot | null>(null);
@@ -86,8 +117,9 @@ export function SwdPage() {
   const [serialInput, setSerialInput] = useState("");
   const [serialHex, setSerialHex] = useState(false);
 
-  // Time-series history for chart
+  // Time-series history for chart and sparklines
   const historyRef = useRef<Record<string, { t: number; v: number }[]>>({});
+  const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstanceRef = useRef<Chart | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -100,7 +132,6 @@ export function SwdPage() {
       setHzInput(st.hz || 20);
       setHostInput(st.host || "127.0.0.1");
       setPortInput(st.telnet_port ? String(st.telnet_port) : "");
-      // Default plot all active symbols
       const p: Record<string, boolean> = {};
       st.symbols?.forEach((s) => {
         p[s.name] = true;
@@ -174,6 +205,13 @@ export function SwdPage() {
           const arr = historyRef.current[name];
           arr.push({ t: s.t, v: val });
           if (arr.length > 300) arr.shift();
+
+          // update mini sparklines
+          setSparklines((prev) => {
+            const cur = prev[name] || [];
+            const next = [...cur.slice(-24), val as number];
+            return { ...prev, [name]: next };
+          });
         }
       }
     } else if (typ === "serial") {
@@ -204,28 +242,31 @@ export function SwdPage() {
             type: "linear",
             display: true,
             ticks: {
-              color: "rgba(204, 204, 220, 0.4)",
-              font: { family: "IBM Plex Mono", size: 10 },
+              color: "rgba(200, 205, 216, 0.4)",
+              font: { family: "JetBrains Mono, IBM Plex Mono", size: 10 },
               callback: (val) => `${Number(val).toFixed(1)}s`,
             },
-            grid: { color: "rgba(255, 255, 255, 0.05)" },
+            grid: { color: "rgba(255, 255, 255, 0.04)" },
           },
           y: {
             display: true,
             ticks: {
-              color: "rgba(204, 204, 220, 0.4)",
-              font: { family: "IBM Plex Mono", size: 10 },
+              color: "rgba(200, 205, 216, 0.4)",
+              font: { family: "JetBrains Mono, IBM Plex Mono", size: 10 },
             },
-            grid: { color: "rgba(255, 255, 255, 0.05)" },
+            grid: { color: "rgba(255, 255, 255, 0.04)" },
           },
         },
         plugins: {
           legend: {
             display: true,
             labels: {
-              color: "#ccccdc",
-              font: { family: "IBM Plex Mono", size: 11 },
-              boxWidth: 12,
+              color: "#ffffff",
+              font: { family: "Inter, sans-serif", size: 11, weight: 600 },
+              boxWidth: 10,
+              boxHeight: 10,
+              usePointStyle: true,
+              pointStyle: "circle",
             },
           },
         },
@@ -242,12 +283,15 @@ export function SwdPage() {
         .map((s, idx) => {
           const hist = historyRef.current[s.name] || [];
           const t0 = hist[0]?.t || 0;
+          const color = COLORS[idx % COLORS.length];
           return {
             label: s.name,
-            borderColor: COLORS[idx % COLORS.length],
-            backgroundColor: COLORS[idx % COLORS.length],
-            borderWidth: 1.5,
+            borderColor: color,
+            backgroundColor: `${color}18`, // subtle gradient area
+            borderWidth: 2,
             pointRadius: 0,
+            fill: true,
+            tension: 0.25,
             data: hist.map((pt) => ({ x: pt.t - t0, y: pt.v })),
           };
         });
@@ -306,6 +350,7 @@ export function SwdPage() {
 
   const clearChart = () => {
     historyRef.current = {};
+    setSparklines({});
   };
 
   const toggleSerial = async () => {
@@ -340,7 +385,7 @@ export function SwdPage() {
     const ph = snap?.phase || "waiting";
     switch (ph) {
       case "streaming":
-        return { text: "实时监视", cls: "s-connected" };
+        return { text: "实时监视中", cls: "s-connected" };
       case "connecting":
         return { text: "正在连接", cls: "s-warn" };
       case "idle":
@@ -348,7 +393,7 @@ export function SwdPage() {
       case "reconnecting":
         return { text: "重连中", cls: "s-warn" };
       case "error":
-        return { text: "异常", cls: "s-err" };
+        return { text: "通信异常", cls: "s-err" };
       default:
         return { text: "等待 OpenOCD", cls: "s-idle" };
     }
@@ -356,147 +401,159 @@ export function SwdPage() {
 
   return (
     <div className="feature-page" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Top status bar */}
+      {/* Top HUD Status Toolbar */}
       <div
         className="feature-toolbar"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "12px",
-          padding: "6px 14px",
+          gap: "14px",
+          padding: "0 16px",
           borderBottom: "1px solid var(--border)",
-          background: "var(--surface)",
+          background: "rgba(10, 12, 18, 0.85)",
+          backdropFilter: "blur(16px)",
         }}
       >
-        <span className={`state-tag ${phaseTag.cls}`} style={{ fontWeight: 600 }}>
-          {phaseTag.text}
-        </span>
-        <span className="mono" style={{ fontSize: "12px", color: "var(--muted)" }}>
-          {snap?.message}
-        </span>
-        <div style={{ flex: 1 }} />
-        {snap?.elf && (
-          <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }} title={snap.elf}>
-            ELF: {snap.elf.split("/").pop()}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span className={`state-tag ${phaseTag.cls}`}>{phaseTag.text}</span>
+          <span className="mono" style={{ fontSize: "12px", color: "var(--muted)" }}>
+            {snap?.message}
           </span>
+        </div>
+
+        <div className="spacer" />
+
+        {snap?.elf && (
+          <div className="search-command-pill" title={snap.elf}>
+            <span style={{ color: "var(--faint)" }}>ELF:</span>
+            <span className="mono" style={{ color: "var(--text-strong)" }}>
+              {snap.elf.split("/").pop()}
+            </span>
+          </div>
         )}
-        <span className="mono" style={{ fontSize: "12px", color: "var(--ok)" }}>
-          {snap?.stats?.hz || 0} Hz
-        </span>
-        <span className="mono" style={{ fontSize: "12px", color: "var(--muted)" }}>
-          RTT {snap?.stats?.rtt_p50 || 0}ms
-        </span>
+
+        {/* Live Metrics */}
+        <div className="status-pill">
+          <span className="pulse-dot"></span>
+          <span>{snap?.stats?.hz || 0} Hz · {snap?.stats?.rtt_p50 || 0}ms RTT</span>
+        </div>
+
         <button
           type="button"
           className="ghost"
-          style={{ fontSize: "12px", padding: "2px 8px" }}
+          style={{ fontSize: "12px", padding: "4px 10px" }}
           onClick={() => setShowSettings(!showSettings)}
         >
-          ⚙ 设置
+          ⚙ 参数设置
         </button>
         <button
           type="button"
           className="ghost"
-          style={{ fontSize: "12px", padding: "2px 8px" }}
+          style={{ fontSize: "12px", padding: "4px 10px" }}
           onClick={() => setShowSerial(!showSerial)}
         >
-          📟 串口
+          📟 串口监控
         </button>
       </div>
 
-      {/* Settings Dropdown/Drawer */}
+      {/* Settings Drawer */}
       {showSettings && (
         <div
           style={{
-            padding: "12px 16px",
+            padding: "14px 20px",
             background: "var(--surface-2)",
             borderBottom: "1px solid var(--border)",
             display: "grid",
             gridTemplateColumns: "2fr 1fr 1fr 1fr auto",
-            gap: "10px",
+            gap: "12px",
             alignItems: "center",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}
         >
           <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block" }}>工程路径 (包含 ELF)</label>
+            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
+              固件工程目录 (含 ELF)
+            </label>
             <input
-              style={{ width: "100%", padding: "4px 8px", fontSize: "12px" }}
+              style={{ width: "100%", fontSize: "12px" }}
               value={projectInput}
               onChange={(e) => setProjectInput(e.target.value)}
               placeholder="/path/to/firmware"
             />
           </div>
           <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block" }}>目标采样率 (Hz)</label>
+            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
+              采样速率 (Hz)
+            </label>
             <input
               type="number"
               min={1}
               max={50}
-              style={{ width: "100%", padding: "4px 8px", fontSize: "12px" }}
+              style={{ width: "100%", fontSize: "12px" }}
               value={hzInput}
               onChange={(e) => setHzInput(Number(e.target.value))}
             />
           </div>
           <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block" }}>OpenOCD Host</label>
+            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
+              OpenOCD Host
+            </label>
             <input
-              style={{ width: "100%", padding: "4px 8px", fontSize: "12px" }}
+              style={{ width: "100%", fontSize: "12px" }}
               value={hostInput}
               onChange={(e) => setHostInput(e.target.value)}
             />
           </div>
           <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block" }}>Telnet 端口 (留空自动)</label>
+            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
+              Telnet 端口
+            </label>
             <input
-              style={{ width: "100%", padding: "4px 8px", fontSize: "12px" }}
+              style={{ width: "100%", fontSize: "12px" }}
               value={portInput}
-              placeholder="4444"
+              placeholder="4444 (留空自动探测)"
               onChange={(e) => setPortInput(e.target.value)}
             />
           </div>
-          <button
-            type="button"
-            style={{ alignSelf: "flex-end", padding: "5px 12px", fontSize: "12px" }}
-            onClick={saveSettings}
-          >
-            保存并应用
+          <button type="button" className="primary" style={{ alignSelf: "flex-end", height: "32px" }} onClick={saveSettings}>
+            应用变更
           </button>
         </div>
       )}
 
-      {/* Main Workspace Split: Left Symbols, Right Waveform */}
+      {/* Main Workspace Split: Left Symbol Watcher, Right Oscilloscope */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Left Side: Symbol Search & Watched Variables */}
+        {/* Left Side: Symbol Watcher Card Table */}
         <div
           style={{
-            width: "360px",
+            width: "390px",
             borderRight: "1px solid var(--border)",
-            background: "var(--canvas)",
+            background: "rgba(12, 14, 20, 0.7)",
+            backdropFilter: "blur(16px)",
             display: "flex",
             flexDirection: "column",
             minHeight: 0,
           }}
         >
           {/* Symbol Search Bar */}
-          <div style={{ padding: "10px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ padding: "12px", borderBottom: "1px solid var(--border)" }}>
             <div style={{ position: "relative" }}>
               <input
-                style={{ width: "100%", padding: "6px 10px", fontSize: "12px" }}
-                placeholder="搜索全局符号 (nm -S)..."
+                style={{
+                  width: "100%",
+                  padding: "7px 12px",
+                  fontSize: "12px",
+                  background: "rgba(255,255,255,0.03)",
+                  borderColor: "var(--border-light)",
+                  borderRadius: "6px",
+                }}
+                placeholder="🔍 搜索全局符号 (nm -S)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
               {searching && (
-                <span
-                  style={{
-                    position: "absolute",
-                    right: "10px",
-                    top: "7px",
-                    fontSize: "11px",
-                    color: "var(--muted)",
-                  }}
-                >
-                  搜索中…
+                <span style={{ position: "absolute", right: "12px", top: "8px", fontSize: "11px", color: "var(--cyan)" }}>
+                  检索中…
                 </span>
               )}
             </div>
@@ -509,12 +566,13 @@ export function SwdPage() {
             {matches.length > 0 && (
               <div
                 style={{
-                  maxHeight: "160px",
+                  maxHeight: "180px",
                   overflowY: "auto",
-                  marginTop: "6px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "4px",
+                  marginTop: "8px",
+                  background: "var(--elevated)",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "6px",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
                 }}
               >
                 {matches.map((m) => (
@@ -524,13 +582,12 @@ export function SwdPage() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      padding: "6px 8px",
+                      padding: "8px 10px",
                       borderBottom: "1px solid var(--hairline)",
-                      fontSize: "12px",
                     }}
                   >
                     <div>
-                      <div className="mono" style={{ fontWeight: 600 }}>
+                      <div className="mono" style={{ fontWeight: 600, color: "var(--text-strong)", fontSize: "12px" }}>
                         {m.name}
                       </div>
                       <div className="mono" style={{ fontSize: "10px", color: "var(--muted)" }}>
@@ -551,24 +608,31 @@ export function SwdPage() {
           </div>
 
           {/* Active Watched Symbols List */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
             <div
               style={{
                 fontSize: "11px",
-                color: "var(--muted)",
-                padding: "2px 4px 6px",
+                fontWeight: 600,
+                color: "var(--faint)",
+                padding: "2px 4px 8px",
                 display: "flex",
                 justifyContent: "space-between",
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
               }}
             >
-              <span>监视列表 ({snap?.symbols?.length || 0}/8)</span>
-              <span>数值类型</span>
+              <span>监视符号 ({snap?.symbols?.length || 0}/8)</span>
+              <span>走势 · 解析</span>
             </div>
 
             {(!snap?.symbols || snap.symbols.length === 0) && (
-              <p style={{ padding: "20px 8px", textAlign: "center", color: "var(--faint)", fontSize: "12px" }}>
-                暂无监视符号。请在上方搜索并添加全局变量。
-              </p>
+              <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--faint)" }}>
+                <div style={{ fontSize: "20px", marginBottom: "8px" }}>📊</div>
+                <div style={{ fontSize: "12px" }}>暂无监视变量</div>
+                <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "4px" }}>
+                  在上方输入变量名进行模糊匹配添加
+                </div>
+              </div>
             )}
 
             {snap?.symbols?.map((row, idx) => {
@@ -576,7 +640,7 @@ export function SwdPage() {
               const mode = fieldMode[row.name] || (row.f32 !== null && row.f32 !== undefined ? "f32" : "u32");
               let valDisplay = "---";
               if (row.error) {
-                valDisplay = `[Err: ${row.error}]`;
+                valDisplay = `Err: ${row.error}`;
               } else if (mode === "f32" && typeof row.f32 === "number") {
                 valDisplay = row.f32.toFixed(4);
               } else if (mode === "i32" && typeof row.i32 === "number") {
@@ -591,72 +655,91 @@ export function SwdPage() {
                 <div
                   key={row.name}
                   style={{
-                    background: "var(--surface)",
-                    border: `1px solid ${plotted[row.name] !== false ? color : "var(--border)"}`,
-                    borderRadius: "4px",
-                    padding: "8px 10px",
+                    background: "rgba(18, 21, 30, 0.75)",
+                    border: `1px solid ${plotted[row.name] !== false ? `${color}55` : "var(--border)"}`,
+                    borderRadius: "6px",
+                    padding: "10px 12px",
                     marginBottom: "8px",
+                    transition: "all 0.15s ease",
+                    boxShadow: plotted[row.name] !== false ? `0 2px 10px ${color}15` : "none",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <input
                         type="checkbox"
                         checked={plotted[row.name] !== false}
                         onChange={(e) => setPlotted({ ...plotted, [row.name]: e.target.checked })}
-                        title="在右侧波形图绘制"
+                        title="在右侧示波器绘制曲线"
                       />
-                      <span className="mono" style={{ fontWeight: 600, color }}>
+                      <span className="mono" style={{ fontWeight: 600, color, fontSize: "13px" }}>
                         {row.name}
                       </span>
                     </div>
                     <button
                       type="button"
                       className="ghost"
-                      style={{ padding: "0 4px", fontSize: "12px", color: "var(--err)" }}
+                      style={{ padding: "0 4px", fontSize: "14px", color: "var(--faint)" }}
                       onClick={() => removeSymbol(row.name)}
                       title="移除监视"
                     >
-                      ×
+                      ✕
                     </button>
                   </div>
 
+                  {/* Main Value and Sparkline Row */}
                   <div
                     style={{
                       display: "flex",
-                      alignItems: "baseline",
+                      alignItems: "center",
                       justifyContent: "space-between",
-                      marginTop: "6px",
+                      marginTop: "8px",
                     }}
                   >
-                    <span className="mono" style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-strong)" }}>
+                    <span
+                      className="mono"
+                      style={{
+                        fontSize: "17px",
+                        fontWeight: 700,
+                        color: "var(--text-strong)",
+                        letterSpacing: "-0.02em",
+                      }}
+                    >
                       {valDisplay}
                     </span>
-                    <select
-                      style={{ fontSize: "11px", padding: "1px 4px", background: "var(--input)" }}
-                      value={mode}
-                      onChange={(e) => setFieldMode({ ...fieldMode, [row.name]: e.target.value as any })}
-                    >
-                      <option value="f32">float32</option>
-                      <option value="i32">int32</option>
-                      <option value="u32">uint32</option>
-                      <option value="hex">hex</option>
-                    </select>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      {/* Mini Sparkline */}
+                      <MiniSparkline data={sparklines[row.name] || []} color={color} />
+
+                      {/* Mode selector */}
+                      <select
+                        style={{ fontSize: "11px", height: "24px", padding: "0 4px", background: "var(--input)" }}
+                        value={mode}
+                        onChange={(e) => setFieldMode({ ...fieldMode, [row.name]: e.target.value as any })}
+                      >
+                        <option value="f32">f32</option>
+                        <option value="i32">i32</option>
+                        <option value="u32">u32</option>
+                        <option value="hex">hex</option>
+                      </select>
+                    </div>
                   </div>
 
+                  {/* Metadata address and latency */}
                   <div
                     className="mono"
                     style={{
                       display: "flex",
-                      gap: "8px",
+                      gap: "10px",
                       fontSize: "10px",
                       color: "var(--muted)",
-                      marginTop: "4px",
+                      marginTop: "6px",
                     }}
                   >
                     {row.addr && <span>{row.addr}</span>}
                     {row.size && <span>{row.size}B</span>}
-                    {row.rtt_ms && <span>{row.rtt_ms}ms</span>}
+                    {row.rtt_ms && <span style={{ color: "var(--cyan)" }}>{row.rtt_ms}ms</span>}
                   </div>
                 </div>
               );
@@ -664,24 +747,31 @@ export function SwdPage() {
           </div>
         </div>
 
-        {/* Right Side: Real-time Waveform Chart */}
+        {/* Right Side: Oscilloscope Waveform Display */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              padding: "8px 12px",
+              padding: "8px 16px",
               borderBottom: "1px solid var(--border)",
-              background: "var(--surface)",
+              background: "rgba(10, 12, 18, 0.8)",
             }}
           >
-            <span style={{ fontWeight: 600, fontSize: "12px" }}>实时变量波形 (SWD Live Waveform)</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-strong)" }}>
+                实时发光示波器 (Oscilloscope)
+              </span>
+              <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }}>
+                · 滚屏波形实时渲染
+              </span>
+            </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
                 className="ghost"
-                style={{ fontSize: "11px", padding: "2px 8px" }}
+                style={{ fontSize: "11px", padding: "3px 10px" }}
                 onClick={() => setIsPaused(!isPaused)}
               >
                 {isPaused ? "▶ 恢复" : "⏸ 暂停"}
@@ -689,24 +779,34 @@ export function SwdPage() {
               <button
                 type="button"
                 className="ghost"
-                style={{ fontSize: "11px", padding: "2px 8px" }}
+                style={{ fontSize: "11px", padding: "3px 10px" }}
                 onClick={clearChart}
               >
                 清空波形
               </button>
             </div>
           </div>
-          <div style={{ flex: 1, position: "relative", padding: "10px", minHeight: 0 }}>
+
+          <div
+            style={{
+              flex: 1,
+              position: "relative",
+              padding: "14px",
+              minHeight: 0,
+              background: "radial-gradient(ellipse at center, rgba(0,240,255,0.02) 0%, #06070a 100%)",
+            }}
+          >
             <canvas ref={chartCanvasRef} />
           </div>
 
-          {/* Optional Serial Console Drawer */}
+          {/* Retractable Serial Console */}
           {showSerial && (
             <div
               style={{
-                height: "220px",
+                height: "230px",
                 borderTop: "1px solid var(--border)",
-                background: "var(--surface)",
+                background: "rgba(8, 10, 16, 0.95)",
+                backdropFilter: "blur(16px)",
                 display: "flex",
                 flexDirection: "column",
               }}
@@ -715,15 +815,15 @@ export function SwdPage() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
-                  padding: "4px 8px",
+                  gap: "10px",
+                  padding: "6px 12px",
                   borderBottom: "1px solid var(--border)",
                   fontSize: "12px",
                 }}
               >
-                <span>串口终端:</span>
+                <span style={{ fontWeight: 600, color: "var(--cyan)" }}>📟 硬件串口终端:</span>
                 <select
-                  style={{ fontSize: "11px", padding: "2px 6px" }}
+                  style={{ fontSize: "11px", height: "26px" }}
                   value={serialDevice}
                   onChange={(e) => setSerialDevice(e.target.value)}
                 >
@@ -735,7 +835,7 @@ export function SwdPage() {
                   ))}
                 </select>
                 <select
-                  style={{ fontSize: "11px", padding: "2px 6px" }}
+                  style={{ fontSize: "11px", height: "26px" }}
                   value={serialBaud}
                   onChange={(e) => setSerialBaud(Number(e.target.value))}
                 >
@@ -746,16 +846,16 @@ export function SwdPage() {
                 </select>
                 <button
                   type="button"
-                  style={{ fontSize: "11px", padding: "2px 8px" }}
+                  style={{ fontSize: "11px", height: "26px", padding: "0 10px" }}
                   onClick={toggleSerial}
                 >
-                  {serialOpen ? "关闭串口" : "打开串口"}
+                  {serialOpen ? "断开" : "连接串口"}
                 </button>
                 <div style={{ flex: 1 }} />
                 <button
                   type="button"
                   className="ghost"
-                  style={{ fontSize: "11px" }}
+                  style={{ fontSize: "11px", height: "26px" }}
                   onClick={() => setSerialLogs([])}
                 >
                   清屏
@@ -767,39 +867,48 @@ export function SwdPage() {
                 style={{
                   flex: 1,
                   overflowY: "auto",
-                  padding: "6px 10px",
+                  padding: "8px 12px",
                   fontSize: "11px",
-                  background: "var(--canvas)",
+                  background: "#050609",
                 }}
               >
                 {serialLogs.map((item, index) => (
                   <div
                     key={index}
                     style={{
-                      color: item.dir === "tx" ? "var(--ok)" : item.dir === "error" ? "var(--err)" : "var(--text)",
+                      lineHeight: "1.6",
+                      color: item.dir === "tx" ? "var(--green)" : item.dir === "error" ? "var(--err)" : "var(--text)",
                     }}
                   >
-                    <span style={{ color: "var(--muted)", marginRight: "6px" }}>
-                      {item.dir === "tx" ? "TX ->" : "RX <-"}
+                    <span style={{ color: "var(--faint)", marginRight: "8px" }}>
+                      {item.dir === "tx" ? "[TX →]" : "[RX ←]"}
                     </span>
                     {item.text}
                   </div>
                 ))}
               </div>
 
-              <div style={{ display: "flex", gap: "6px", padding: "4px 8px", borderTop: "1px solid var(--border)" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "8px",
+                  padding: "6px 12px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--surface)",
+                }}
+              >
                 <input
-                  style={{ flex: 1, padding: "4px 8px", fontSize: "12px" }}
-                  placeholder={serialHex ? "16进制发送 (如: 01 02 A3)" : "发送文本..."}
+                  style={{ flex: 1, fontSize: "12px", height: "28px" }}
+                  placeholder={serialHex ? "16进制发送 (如: 01 02 A3)..." : "发送控制文本..."}
                   value={serialInput}
                   onChange={(e) => setSerialInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && sendSerial()}
                 />
-                <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--muted)" }}>
                   <input type="checkbox" checked={serialHex} onChange={(e) => setSerialHex(e.target.checked)} />
                   HEX
                 </label>
-                <button type="button" style={{ fontSize: "11px", padding: "2px 10px" }} onClick={sendSerial}>
+                <button type="button" className="primary" style={{ height: "28px", padding: "0 12px" }} onClick={sendSerial}>
                   发送
                 </button>
               </div>
