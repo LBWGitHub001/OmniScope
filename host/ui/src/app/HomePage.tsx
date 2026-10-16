@@ -5,7 +5,16 @@ import { featureStatus, getJson, listInstances, openFeature } from "../shared/ap
 import { InstanceProvider } from "../shared/instance";
 import { featureFromApp } from "../shared/robotFeature";
 
-type Row = { instance: string; feature: string; title: string; state: string; sender?: string; data_port?: number; path?: string };
+type Row = {
+  instance: string;
+  feature: string;
+  title: string;
+  state: string;
+  sender?: string;
+  data_port?: number;
+  path?: string;
+};
+
 type Robot = {
   name: string;
   ip: string;
@@ -16,6 +25,18 @@ type Robot = {
 };
 
 const HOME_TOOLS = FEATURE_MODULES.filter((m) => m.id !== "watch" && m.id !== "calibrate");
+
+function LogoIcon() {
+  return (
+    <svg className="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2" />
+      <line x1="12" y1="22" x2="12" y2="15.5" />
+      <polyline points="22 8.5 12 15.5 2 8.5" />
+      <polyline points="2 15.5 12 8.5 22 15.5" />
+      <line x1="12" y1="2" x2="12" y2="8.5" />
+    </svg>
+  );
+}
 
 export function HomePage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -72,101 +93,140 @@ export function HomePage() {
 
   return (
     <div className="app-shell">
+      {/* Topbar */}
       <header className="topbar">
-        <span className="brand">rdbg</span>
+        <div className="brand-group">
+          <LogoIcon />
+          <span className="brand">OmniScope</span>
+        </div>
         <span className="topbar-sep" />
-        <span className="topbar-title">Host</span>
+        <span className="topbar-title" style={{ fontSize: "12px", color: "var(--muted)" }}>
+          Robotics & Embedded Debug Studio
+        </span>
         <div className="spacer" />
-        <span className="pill">{rows.length ? `${rows.length} 个页面` : "无打开页面"}</span>
+        <div className="status-pill">
+          <span className="pulse-dot"></span>
+          <span>Hub 在线 · {rows.length ? `${rows.length} 活跃线程` : "就绪"}</span>
+        </div>
       </header>
+
+      {/* Main Container */}
       <div className="main">
         <div className="home">
           <header className="page-head">
-            <h1>调试入口</h1>
-            <p className="sub">每次打开都是独立页面和线程，可以多开。关掉页面就会停掉对应线程。</p>
+            <h1>集成调试控制台</h1>
+            <p className="sub">
+              面向机器人与嵌入式系统的全景观测视窗。每个功能均在独立线程与独立页面中运行，互不干扰。
+            </p>
           </header>
+
           {err && <p className="err-text">{err}</p>}
+
+          {/* Feature Grid */}
           <section className="block">
-            <div className="sec-label">功能</div>
-            <div className="launcher">
+            <div className="sec-label">调试工具矩阵 (Debugging Modules)</div>
+            <div className="tool-grid">
               {HOME_TOOLS.map((m) => (
-                <button key={m.id} type="button" className="tool" onClick={() => open(m.id)}>
-                  <span className="tool-id">{m.id}</span>
-                  <span className="tool-body">
-                    <span className="tool-title">{m.title}</span>
-                    <span className="tool-desc">{m.description}</span>
-                  </span>
-                  <span className="tool-go">新窗口</span>
-                </button>
+                <div key={m.id} className="tool-card" onClick={() => open(m.id)}>
+                  <div className="tool-card-head">
+                    <span className="tool-card-id">{m.id.toUpperCase()}</span>
+                    <span style={{ fontSize: "11px", color: "var(--muted)" }}>新窗口 ↗</span>
+                  </div>
+                  <div className="tool-card-title">{m.title}</div>
+                  <div className="tool-card-desc">{m.description}</div>
+                  <div className="tool-card-action">
+                    <span>启动模块</span>
+                    <span style={{ fontSize: "13px" }}>→</span>
+                  </div>
+                </div>
               ))}
             </div>
           </section>
+
+          {/* Connected Robots Section */}
           <section className="block">
-            <div className="sec-label">车辆</div>
-            <div className="launcher">
-              {robots.map((r) => {
-                const feat =
-                  r.feature === "calibrate" || r.feature === "watch"
-                    ? r.feature
-                    : featureFromApp(r.app);
-                const meta = [
-                  r.app && r.app !== "normal" ? `app=${r.app}` : "",
-                  r.ip,
-                  r.data_port ? `UDP ${r.data_port}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                return (
-                  <button
-                    key={r.name}
-                    type="button"
-                    className="tool"
-                    onClick={() => openRobot(r)}
-                  >
-                    <span className="tool-id">{feat}</span>
-                    <span className="tool-body">
-                      <span className="tool-title">{r.name}</span>
-                      {meta && <span className="tool-desc mono">{meta}</span>}
-                    </span>
-                    <span className="tool-go">新窗口</span>
-                  </button>
-                );
-              })}
-              {robots.length === 0 && (
-                <p className="empty launcher-empty">
-                  还没有发现车辆，可以直接填车名。标定程序 beacon 带 app=calibrate。
-                </p>
-              )}
-              <form
-                className="launcher-manual"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  openManual();
-                }}
-              >
-                <input
-                  value={manual}
-                  placeholder="车名 sender_name"
-                  onChange={(e) => setManual(e.target.value)}
-                />
-                <button type="submit" disabled={!manual.trim()}>
-                  打开
-                </button>
-              </form>
-            </div>
+            <div className="sec-label">在线车辆 / 边缘设备 (Discovered Targets)</div>
+            {robots.length > 0 ? (
+              <div className="robot-grid">
+                {robots.map((r) => {
+                  const feat =
+                    r.feature === "calibrate" || r.feature === "watch"
+                      ? r.feature
+                      : featureFromApp(r.app);
+                  return (
+                    <div key={r.name} className="robot-card" onClick={() => openRobot(r)}>
+                      <div className="robot-info">
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className="pulse-dot"></span>
+                          <span className="robot-name">{r.name}</span>
+                          {r.app && r.app !== "normal" && (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                background: "var(--amber-dim)",
+                                color: "var(--amber)",
+                                padding: "1px 4px",
+                                borderRadius: "3px",
+                              }}
+                            >
+                              {r.app}
+                            </span>
+                          )}
+                        </div>
+                        <span className="robot-meta">
+                          {r.ip} · UDP {r.data_port || 15001}
+                        </span>
+                      </div>
+                      <button type="button" className="ghost" style={{ fontSize: "12px", color: "var(--cyan)" }}>
+                        打开 {feat} ↗
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="empty">
+                局域网内暂未发现广播车辆（Beacon :15999）。您可以直接输入车名手动发起连接。
+              </p>
+            )}
+
+            <form
+              className="launcher-manual"
+              onSubmit={(e) => {
+                e.preventDefault();
+                openManual();
+              }}
+            >
+              <input
+                value={manual}
+                placeholder="手动指定车名 (sender_name)..."
+                onChange={(e) => setManual(e.target.value)}
+              />
+              <button type="submit" disabled={!manual.trim()}>
+                打开 Watch
+              </button>
+            </form>
           </section>
+
+          {/* Running Instances List */}
           {rows.length > 0 && (
             <section className="block">
-              <div className="sec-label">已打开</div>
+              <div className="sec-label">已挂载活动实例 (Active Instances)</div>
               <ul className="inst-list">
                 {rows.map((r) => (
                   <li key={r.instance}>
                     <a href={r.path || `/i/${r.instance}`} target="_blank" rel="noreferrer">
-                      <span className="inst-title">
-                        {r.title}
-                        {r.sender ? ` · ${r.sender}` : ""}
+                      <div>
+                        <span className="inst-title">{r.title}</span>
+                        {r.sender && (
+                          <span style={{ color: "var(--cyan)", marginLeft: "8px", fontSize: "12px" }}>
+                            @{r.sender}
+                          </span>
+                        )}
+                      </div>
+                      <span className="inst-meta mono">
+                        {r.data_port ? `UDP :${r.data_port}` : r.instance}
                       </span>
-                      <span className="inst-meta mono">{r.data_port ? `UDP ${r.data_port}` : r.instance}</span>
                       <span className={`state-tag s-${r.state}`}>{r.state}</span>
                     </a>
                   </li>
@@ -213,18 +273,33 @@ export function InstancePage() {
 
   return (
     <div className="app-shell">
+      {/* Topbar with Breadcrumbs */}
       <header className="topbar">
-        <a href="/" className="brand" target="_blank" rel="noreferrer">
-          rdbg
+        <a href="/" className="brand-group" target="_blank" rel="noreferrer">
+          <LogoIcon />
+          <span className="brand">OmniScope</span>
         </a>
         <span className="topbar-sep" />
-        {mod && <span className="topbar-title">{mod.title}</span>}
+        <div className="topbar-breadcrumbs">
+          <span>Studio</span>
+          <span>/</span>
+          {mod && <span className="active">{mod.title}</span>}
+          <span>/</span>
+          <span className="mono" style={{ color: "var(--faint)", fontSize: "11px" }}>
+            {iid}
+          </span>
+        </div>
         <div className="spacer" />
-        {mod && <span className="pill on">{mod.id}</span>}
-        <button type="button" className="ghost" onClick={close}>
-          关闭
+        <div className="status-pill">
+          <span className="pulse-dot"></span>
+          <span>线程运行中</span>
+        </div>
+        <button type="button" className="ghost" style={{ fontSize: "12px", color: "var(--err)" }} onClick={close}>
+          关闭实例 ✕
         </button>
       </header>
+
+      {/* Feature Main Content */}
       <div className="main">
         {err && <p className="err-text page-pad">{err}</p>}
         {mod && iid && mod.Component && (
