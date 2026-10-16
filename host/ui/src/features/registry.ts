@@ -3,6 +3,7 @@ import { WatchPage } from "./watch/WatchPage";
 import { ReplayPage } from "./replay/ReplayPage";
 import { DumpPage } from "./dump/DumpPage";
 import { NetcheckPage } from "./netcheck/NetcheckPage";
+import { SwdPage } from "./swd/SwdPage";
 
 /** Frontend feature registry — add a module here to show on the home page. */
 export const FEATURE_MODULES: FeatureModule[] = [
@@ -39,5 +40,12 @@ export const FEATURE_MODULES: FeatureModule[] = [
     description: "UDP discover / echo / ping",
     route: "/netcheck",
     Component: NetcheckPage,
+  },
+  {
+    id: "swd",
+    title: "SWD",
+    description: "OpenOCD SWD 内存符号非侵入式实时监视与波形",
+    route: "/swd",
+    Component: SwdPage,
   },
 ];
