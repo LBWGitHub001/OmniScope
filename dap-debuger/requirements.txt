@@ -1,0 +1,3 @@
+# Watch and chart use the Python 3.9+ standard library.
+# Serial console needs pyserial. Optional host tools: arm-none-eabi-nm, OpenOCD.
+pyserial>=3.5

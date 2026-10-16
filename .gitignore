@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build artifacts
+build/
+cmake-build-*/
+dist/
+*.o
+*.a
+*.so
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.intellijPlatform/
+.kotlin/
+.gradle/
+
+# Logs & Archives
+logs/
+*.log
+*.rlog
+*.rmbag
+legacy_backup.tar.gz
+
+# Local tooling & OS files
+.tools/
+.DS_Store
+Thumbs.db
