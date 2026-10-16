@@ -47,6 +47,10 @@ def _parser():
                       help="output directory (default: <stem>_dump next to rlog)")
     dump.add_argument("--fps", type=float, default=10.0,
                       help="images.mp4 frame rate (default 10)")
+
+    swd = sub.add_parser("swd", help="OpenOCD SWD live memory symbol monitor")
+    swd.add_argument("--port", type=int, default=8080, help="HTTP port")
+    swd.add_argument("--no-browser", action="store_true")
     return p
 
 
@@ -63,7 +67,7 @@ def main(argv=None):
         from .apps.hub_app import run
         return run(args.host, args.port, args.no_browser, args.open_path)
 
-    if args.cmd in ("watch", "debugger"):
+    if args.cmd in ("watch", "debugger", "swd"):
         from .apps.hub_app import run
         return run("0.0.0.0", args.port, args.no_browser, "/")
 

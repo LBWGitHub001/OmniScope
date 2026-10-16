@@ -5,6 +5,7 @@ from .dump import DumpFeature
 from .fleet_bound import FleetBoundFeature
 from .netcheck import NetcheckFeature
 from .replay import ReplayFeature
+from .swd import SwdFeature
 from .watch import WatchFeature
 
 
@@ -15,6 +16,7 @@ def builtin_features():
         ReplayFeature(),
         DumpFeature(),
         NetcheckFeature(),
+        SwdFeature(),
     ]
 
 
@@ -24,6 +26,7 @@ __all__ = [
     "FleetBoundFeature",
     "NetcheckFeature",
     "ReplayFeature",
+    "SwdFeature",
     "WatchFeature",
     "builtin_features",
 ]
