@@ -945,3 +945,286 @@ p.err-text { margin: 0 0 12px; }
 }
 .workbench { display: flex; height: 100%; min-height: 0; }
 .workbench .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* ==========================================================================
+   NUAA ChangKong YuFeng RoboMaster Animated Logo Component
+   ========================================================================== */
+.ck-logo-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+  transition: transform 0.2s ease;
+}
+.ck-logo-container:hover {
+  transform: translateY(-1px);
+}
+.ck-logo-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ck-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.25));
+  transition: filter 0.3s ease;
+}
+.ck-logo-container:hover .ck-svg {
+  filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.6));
+}
+
+/* Outer & Inner Rings with Mechanical Rotation */
+.ck-outer-ring {
+  fill: none;
+  stroke: rgba(0, 240, 255, 0.25);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 6;
+  transform-origin: 80px 80px;
+  animation: ck-ring-rot 24s linear infinite;
+}
+.ck-inner-ring {
+  fill: none;
+  stroke: rgba(2, 132, 199, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 14 6 4 6;
+  transform-origin: 80px 80px;
+  animation: ck-ring-rot-rev 16s linear infinite;
+}
+.ck-ticks line {
+  stroke: rgba(0, 240, 255, 0.65);
+  stroke-width: 1.2;
+}
+
+/* Radar Sweep Animation */
+.ck-radar-group {
+  transform-origin: 80px 80px;
+  animation: ck-radar-sweep 4s linear infinite;
+}
+.ck-logo-container:hover .ck-radar-group {
+  animation-duration: 1.6s;
+}
+.ck-radar-beam {
+  stroke: #00f0ff;
+  stroke-width: 1.5;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 4px #00f0ff);
+}
+
+/* Aerodynamic Wind Flow Lines ("御风") */
+.ck-wind-line {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 1.2;
+  stroke-dasharray: 12 24;
+  opacity: 0.6;
+  animation: ck-wind-stream 2.2s linear infinite;
+}
+.ck-wind-2 { animation-delay: -0.55s; }
+.ck-wind-3 { animation-delay: -1.1s; }
+.ck-wind-4 { animation-delay: -1.65s; }
+
+/* Afterburner Thruster Flame */
+.ck-thruster-flame {
+  opacity: 0.8;
+  transform-origin: 80px 102px;
+  animation: ck-flame-flicker 1.2s ease-in-out infinite alternate;
+}
+.ck-logo-container:hover .ck-thruster-flame {
+  opacity: 1;
+  filter: drop-shadow(0 4px 10px #f59e0b);
+}
+
+/* Hex Armor Shield */
+.ck-hex-shield {
+  fill: rgba(8, 10, 16, 0.8);
+  stroke: rgba(0, 240, 255, 0.3);
+  stroke-width: 1.4;
+  stroke-dasharray: 54 12;
+}
+
+/* Delta Fighter Wing */
+.ck-delta-wing {
+  filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.5));
+  transition: filter 0.3s ease;
+}
+.ck-logo-container:hover .ck-delta-wing {
+  filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.85));
+}
+
+/* Central Energy Core & Pulse */
+.ck-energy-core {
+  transform-origin: 80px 74px;
+  animation: ck-core-breath 2.4s ease-in-out infinite alternate;
+}
+.ck-core-ring {
+  fill: none;
+  stroke: #00f0ff;
+  stroke-width: 1;
+  opacity: 0.8;
+  transform-origin: 80px 74px;
+  animation: ck-ring-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.ck-tactical-text {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  fill: rgba(148, 163, 184, 0.8);
+  letter-spacing: 0.12em;
+}
+
+/* Brand Text Styling */
+.ck-brand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.ck-team-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.ck-title-uni {
+  color: #f1f5f9;
+}
+.ck-title-sep {
+  color: var(--cyan);
+  font-weight: 900;
+}
+.ck-title-team {
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
+}
+.ck-team-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.ck-tag-rm {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 3px;
+  padding: 1px 4px;
+  letter-spacing: 0.06em;
+}
+.ck-sub-en {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* Keyframe Animations */
+@keyframes ck-ring-rot {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes ck-ring-rot-rev {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+@keyframes ck-radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes ck-wind-stream {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -36; }
+}
+@keyframes ck-flame-flicker {
+  0% { transform: scaleY(0.9) scaleX(0.95); opacity: 0.7; }
+  50% { transform: scaleY(1.15) scaleX(1.05); opacity: 0.95; }
+  100% { transform: scaleY(0.98) scaleX(0.98); opacity: 0.8; }
+}
+@keyframes ck-core-breath {
+  0% { transform: scale(0.92); opacity: 0.8; }
+  100% { transform: scale(1.12); opacity: 1; filter: drop-shadow(0 0 8px #00f0ff); }
+}
+@keyframes ck-ring-pulse {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Banner / Tribute Card on Homepage */
+.team-tribute-banner {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(14, 165, 233, 0.03) 50%, rgba(9, 10, 15, 0.8) 100%);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 10px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+.team-tribute-banner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.8), transparent);
+}
+.team-tribute-badge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.team-tribute-text h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-tribute-text p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.team-tribute-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.team-tribute-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+.tag-cyan {
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--cyan);
+}
+.tag-amber {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--amber);
+}
+

@@ -4,6 +4,7 @@ import { FEATURE_MODULES } from "../features/registry";
 import { featureStatus, getJson, listInstances, openFeature } from "../shared/api";
 import { InstanceProvider } from "../shared/instance";
 import { featureFromApp } from "../shared/robotFeature";
+import { ChangkongLogo } from "../shared/ChangkongLogo";
 
 type Row = {
   instance: string;
@@ -100,9 +101,7 @@ export function HomePage() {
           <span className="brand">OmniScope</span>
         </div>
         <span className="topbar-sep" />
-        <span className="topbar-title" style={{ fontSize: "12px", color: "var(--muted)" }}>
-          Robotics & Embedded Debug Studio
-        </span>
+        <ChangkongLogo size="sm" showText={true} />
         <div className="spacer" />
         <div className="status-pill">
           <span className="pulse-dot"></span>
@@ -113,6 +112,24 @@ export function HomePage() {
       {/* Main Container */}
       <div className="main">
         <div className="home">
+          {/* NUAA ChangKong YuFeng RoboMaster Tribute Banner */}
+          <div className="team-tribute-banner">
+            <div className="team-tribute-badge">
+              <ChangkongLogo size="md" showText={false} />
+              <div className="team-tribute-text">
+                <h3>
+                  <span>南京航空航天大学 · 长空御风战队</span>
+                  <span className="ck-tag-rm">ROBOMASTER 2026</span>
+                </h3>
+                <p>NUAA CHANGKONG YUFENG ROBOMASTER TEAM · 专属集成调试工作站</p>
+              </div>
+            </div>
+            <div className="team-tribute-tags">
+              <span className="team-tribute-tag tag-cyan">⚡ 实时遥测 & SWD 探针</span>
+              <span className="team-tribute-tag tag-amber">🎯 视觉标定 & 回放工作台</span>
+            </div>
+          </div>
+
           <header className="page-head">
             <h1>集成调试控制台</h1>
             <p className="sub">
@@ -290,6 +307,7 @@ export function InstancePage() {
           </span>
         </div>
         <div className="spacer" />
+        <ChangkongLogo size="sm" showText={false} />
         <div className="status-pill">
           <span className="pulse-dot"></span>
           <span>线程运行中</span>
