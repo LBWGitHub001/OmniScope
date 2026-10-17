@@ -719,7 +719,7 @@ function LogPane({
               }}
             >
               {l.t != null ? (
-                <span className="log-ts">{l.t.toFixed(3)}</span>
+                <span className="log-ts">{l.t.toFixed(3)}s</span>
               ) : l.ts ? (
                 <span className="log-ts">{fmtTs(l.ts)}</span>
               ) : null}

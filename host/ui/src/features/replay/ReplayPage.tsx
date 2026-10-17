@@ -200,7 +200,7 @@ export function ReplayPage() {
         >
           {[0.25, 0.5, 1, 2, 4].map((r) => (
             <option key={r} value={r}>
-              {r}×
+              {r}x
             </option>
           ))}
         </select>
@@ -211,7 +211,20 @@ export function ReplayPage() {
           停止线程
         </button>
         {err && <span className="err-text">{err}</span>}
-        {meta && <span className="mono">{meta.file}</span>}
+        {meta && (
+          <span
+            className="mono muted"
+            style={{
+              maxWidth: "280px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={meta.file}
+          >
+            {meta.file}
+          </span>
+        )}
       </div>
       {meta && (
         <div className="feature-toolbar scrub">
@@ -225,12 +238,16 @@ export function ReplayPage() {
             onPointerDown={() => setPlaying(false)}
             onChange={(e) => seek(Number(e.target.value))}
           />
-          <span className="mono">
-            {t.toFixed(2)} / {(meta.duration || 0).toFixed(2)} s
+          <span className="replay-time-badge">
+            {t.toFixed(2)}s / {(meta.duration || 0).toFixed(2)}s
           </span>
-          <span className="mono muted">
-            全量曲线/日志 · 拖橙线或点日志跳转 · ← → 0.05s · 空格播放
-          </span>
+          <div className="replay-hint">
+            <span>全量曲线/日志 · 拖橙线或点日志跳转</span>
+            <span>·</span>
+            <span><kbd>←</kbd> <kbd>→</kbd> ±0.05s</span>
+            <span>·</span>
+            <span><kbd>Space</kbd> 播放/暂停</span>
+          </div>
         </div>
       )}
       <div className="feature-body fill">
