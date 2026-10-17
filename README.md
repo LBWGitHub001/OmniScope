@@ -6,18 +6,20 @@
 
 ## 架构体系
 
-工程清晰划分为**下位机（Target）**与**上位机（Host）**两大体系：
+工程清晰划分为**下位机（SDK）**与**上位机（Host）**两大体系：
 
 ```
 OmniScope/
-├── target/                     # 【下位机部分】附属在嵌入式/机器人代码中的 C++ SDK
-│   ├── CMakeLists.txt          # 统一 CMake 导出
-│   ├── README.md               # 下位机快速上手文档
-│   ├── logger/                 # 远程遥测与日志核心 (RemoteLogger & rdbg)
-│   │   ├── include/            # 对外暴露头文件 (tools/remote_logger.hpp)
-│   │   └── src/                # UDP 发送、分片图像压缩、异步 .rlog 落盘
-│   └── rmbag/                  # 满帧率无损视觉/云台数据集录放库 (.rmbag)
-│       ├── include/            # proto.hpp, writer.hpp, playback.hpp
+├── sdk/                        # 【下位机部分】附属在嵌入式/机器人代码中的 C++ & MCU SDK
+│   ├── CMakeLists.txt          # 统一 CMake 导出 (OmniScope::All, Logger, RMBag, MCU)
+│   ├── README.md               # 下位机快速上手与模块指南
+│   ├── core/                   # 核心基础定义与通用工具 (OmniScope::Core)
+│   ├── mcu/                    # 单片机 SWD 参数在线热整定与原子快照纯 C 头文件 (OmniScope::MCU)
+│   ├── logger/                 # 远程遥测与日志核心 (OmniScope::Logger)
+│   │   ├── include/            # 对外暴露公共头文件 (<omniscope/remote_logger.hpp>)
+│   │   └── src/                # UDP 发送、分片图像压缩、异步 .rlog 落盘 (私有 internal/)
+│   └── rmbag/                  # 满帧率无损视觉/云台姿态数据集录放库 (OmniScope::RMBag)
+│       ├── include/            # 对外暴露公共头文件 (<omniscope/rmbag/*.hpp>)
 │       └── src/                # 异步写入器与假设备回放源
 │
 ├── host/                       # 【上位机部分】统一集成调试门户 (Python + React)
@@ -67,30 +69,31 @@ OmniScope/
 在机器人 C++ 工程的 `CMakeLists.txt` 中添加：
 
 ```cmake
-add_subdirectory(target)
-target_link_libraries(your_robot_target PRIVATE target_logger target_rmbag)
+add_subdirectory(sdk)
+# 一键链接全部 OmniScope 组件，或按需链接 OmniScope::Logger / OmniScope::RMBag
+target_link_libraries(your_robot_target PRIVATE OmniScope::All)
 ```
 
 代码中调用：
 
 ```cpp
-#include "tools/remote_logger.hpp"
+#include <omniscope/remote_logger.hpp>
 
 // 1. 初始化遥测引擎
-tools::RemoteLogger::instance().init(config);
+omniscope::RemoteLogger::instance().init(config);
 
 // 2. 实时打印曲线与变量 (Host Watch 面板可实时查看)
-tools::RemoteLogger::instance().plot({
+omniscope::RemoteLogger::instance().plot({
     {"yaw", current_yaw},
     {"pitch", current_pitch},
     {"speed", current_speed}
 });
 
 // 3. 实时输出日志
-tools::RemoteLogger::instance().log("INFO", "Robot initialized successfully");
+omniscope::RemoteLogger::instance().log("INFO", "Robot initialized successfully");
 
 // 4. 实时图像回传与本地异步压缩保存
-tools::RemoteLogger::instance().plot_image(mat_bgr, {{"name", "raw"}});
+omniscope::RemoteLogger::instance().plot_image(mat_bgr, {{"name", "raw"}});
 ```
 
 ---

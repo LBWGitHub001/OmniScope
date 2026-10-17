@@ -1,1 +1,0 @@
-tools/rmbag/writer.hpp
