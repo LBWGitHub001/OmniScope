@@ -9,6 +9,7 @@ import {
 } from "chart.js";
 import zoomPlugin from "chartjs-plugin-zoom";
 import Hammer from "hammerjs";
+import { compileExpr, type ExprFn } from "./expr";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, zoomPlugin);
 (window as unknown as { Hammer: typeof Hammer }).Hammer = Hammer;
@@ -98,6 +99,20 @@ export function DebugWorkbench({
   const [manual, setManual] = useState(false);
   const kinds = panels.map((p) => p.kind);
 
+  type WorkbenchFormula = {
+    id: number;
+    expr: string;
+    source: string;
+    enabled: boolean;
+    fn?: ExprFn | null;
+    color: string;
+  };
+  const [formulas, setFormulas] = useState<WorkbenchFormula[]>([]);
+  const [formulaDraft, setFormulaDraft] = useState("");
+  const [formulaSource, setFormulaSource] = useState("");
+  const formulasRef = useRef(formulas);
+  formulasRef.current = formulas;
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -129,7 +144,7 @@ export function DebugWorkbench({
     if (!chart) return;
     const meta = fieldsRef.current;
     const labels = Object.keys(seriesRef.current).filter((k) => meta[k]?.on !== false);
-    chart.data.datasets = labels.map((label) => ({
+    const normalDatasets = labels.map((label) => ({
       label,
       data: seriesRef.current[label],
       borderColor: meta[label]?.color || COLORS[0],
@@ -137,6 +152,29 @@ export function DebugWorkbench({
       pointRadius: 0,
       borderWidth: 1.6,
     }));
+
+    const formulaDatasets = formulasRef.current
+      .filter((f) => f.enabled && f.fn && f.source && seriesRef.current[f.source])
+      .map((f) => {
+        const rawPts = seriesRef.current[f.source] || [];
+        const data = rawPts
+          .map((pt) => {
+            const y = f.fn!(pt.y);
+            return Number.isFinite(y) ? { x: pt.x, y } : null;
+          })
+          .filter(Boolean);
+        return {
+          label: `f(x): ${f.expr} [x=${f.source}]`,
+          data: data as any,
+          borderColor: f.color,
+          backgroundColor: "transparent",
+          pointRadius: 0,
+          borderWidth: 1.6,
+          borderDash: [5, 4],
+        };
+      });
+
+    chart.data.datasets = [...normalDatasets, ...formulaDatasets];
     const v = viewRef.current;
     const follow = replayRef.current && cursorRef.current != null ? cursorRef.current : lastX.current;
     if (!v.manual && v.mode !== "paused") {
@@ -198,6 +236,36 @@ export function DebugWorkbench({
     if (rafRef.current) return;
     rafRef.current = requestAnimationFrame(flush);
   }, [flush]);
+
+  const addFormula = () => {
+    const expr = formulaDraft.trim();
+    if (!expr) return;
+    const names = Object.keys(fieldsRef.current);
+    const src = formulaSource || names[0] || "";
+    if (!src) {
+      alert("请先选择自变量 x 来源");
+      return;
+    }
+    try {
+      const fn = compileExpr(expr);
+      setFormulas((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          expr,
+          source: src,
+          enabled: true,
+          fn,
+          color: COLORS[(prev.length + 4) % COLORS.length],
+        },
+      ]);
+      setFormulaDraft("");
+      chartDirty.current = true;
+      schedule();
+    } catch (e) {
+      alert(`公式语法错误: ${e}`);
+    }
+  };
 
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -503,6 +571,93 @@ export function DebugWorkbench({
                   {name}
                 </label>
               ))}
+            </div>
+            <div className="side-sec">
+              <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>虚拟公式通道 ƒ(x)</span>
+                <span className="mono" style={{ color: "var(--cyan)", fontSize: "10px" }}>
+                  {formulas.length}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <input
+                  style={{ fontSize: "11px", padding: "3px 6px", width: "100%" }}
+                  placeholder="如: sin(x)  2x  x*57.3"
+                  value={formulaDraft}
+                  onChange={(e) => setFormulaDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addFormula();
+                  }}
+                />
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <select
+                    style={{ flex: 1, fontSize: "11px", height: "24px", minWidth: 0 }}
+                    value={formulaSource}
+                    onChange={(e) => setFormulaSource(e.target.value)}
+                  >
+                    <option value="">选 x 来源...</option>
+                    {Object.keys(fields).map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    style={{ padding: "0 8px", height: "24px", fontSize: "11px" }}
+                    onClick={addFormula}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {formulas.map((f) => (
+                  <div
+                    key={f.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontSize: "11px",
+                      padding: "2px 0",
+                    }}
+                  >
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", overflow: "hidden" }}>
+                      <input
+                        type="checkbox"
+                        checked={f.enabled}
+                        onChange={() => {
+                          setFormulas((prev) =>
+                            prev.map((item) => (item.id === f.id ? { ...item, enabled: !item.enabled } : item))
+                          );
+                          chartDirty.current = true;
+                          schedule();
+                        }}
+                      />
+                      <span className="swatch" style={{ background: f.color }} />
+                      <span
+                        className="mono"
+                        style={{ color: f.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`${f.expr} [x=${f.source}]`}
+                      >
+                        {f.expr}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ padding: "0 3px", fontSize: "11px" }}
+                      onClick={() => {
+                        setFormulas((prev) => prev.filter((item) => item.id !== f.id));
+                        chartDirty.current = true;
+                        schedule();
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
