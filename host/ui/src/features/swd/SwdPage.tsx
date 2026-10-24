@@ -3,6 +3,7 @@ import { Chart, LineController, LineElement, PointElement, LinearScale, Legend }
 import { getJson, postJson } from "../../shared/api";
 import { useInstance } from "../../shared/instance";
 import { useSSE } from "../../shared/useSSE";
+import { compileExpr, type ExprFn } from "../../shared/expr";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend);
 
@@ -97,6 +98,32 @@ export function SwdPage() {
   const [searchErr, setSearchErr] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [showSerial, setShowSerial] = useState(false);
+  const [showFormulas, setShowFormulas] = useState(false);
+  const [showMailbox, setShowMailbox] = useState(false);
+
+  // Online memory write / hot tuning state
+  const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState("");
+  const [writeStatus, setWriteStatus] = useState<Record<string, "ok" | "err">>({});
+
+  // Virtual formula channels state
+  type FormulaItem = {
+    id: number;
+    expr: string;
+    source: string;
+    enabled: boolean;
+    fn?: ExprFn | null;
+    error?: string | null;
+    color: string;
+  };
+  const [formulas, setFormulas] = useState<FormulaItem[]>([]);
+  const [formulaDraft, setFormulaDraft] = useState("");
+  const [formulaSource, setFormulaSource] = useState("");
+
+  // MCU Mailbox tuning state
+  const [mailboxAddr, setMailboxAddr] = useState("0x20000000");
+  const [mailboxParams, setMailboxParams] = useState<number[]>(new Array(16).fill(0));
+
 
   // Settings form state
   const [projectInput, setProjectInput] = useState("");
@@ -296,6 +323,31 @@ export function SwdPage() {
           };
         });
 
+      // Virtual formula curves
+      formulas
+        .filter((f) => f.enabled && f.fn && f.source)
+        .forEach((f) => {
+          const hist = historyRef.current[f.source] || [];
+          const t0 = hist[0]?.t || 0;
+          const pts = hist
+            .map((pt) => {
+              const y = f.fn!(pt.v);
+              return Number.isFinite(y) ? { x: pt.t - t0, y } : null;
+            })
+            .filter(Boolean);
+          datasets.push({
+            label: `f(x): ${f.expr} [x=${f.source}]`,
+            borderColor: f.color,
+            backgroundColor: "transparent",
+            borderWidth: 1.8,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2,
+            data: pts as any,
+          });
+        });
+
       chart.data.datasets = datasets;
       chart.update("none");
       animId = requestAnimationFrame(updateChart);
@@ -308,9 +360,83 @@ export function SwdPage() {
       chart.destroy();
       chartInstanceRef.current = null;
     };
-  }, [snap?.symbols, plotted]);
+  }, [snap?.symbols, plotted, formulas]);
 
   // Actions
+  const writeSymbol = async (name: string, val: string, fmt: string) => {
+    try {
+      const res = await postJson<{ ok: boolean; error?: string }>(`${base}/symbols/write`, {
+        name,
+        value: val,
+        fmt,
+      });
+      if (!res.ok) throw new Error(res.error || "写入失败");
+      setWriteStatus((prev) => ({ ...prev, [name]: "ok" }));
+      setEditingSymbol(null);
+      setTimeout(() => {
+        setWriteStatus((prev) => {
+          const next = { ...prev };
+          delete next[name];
+          return next;
+        });
+      }, 2000);
+    } catch (e) {
+      alert(`写入变量 ${name} 失败: ${e}`);
+      setWriteStatus((prev) => ({ ...prev, [name]: "err" }));
+    }
+  };
+
+  const writeMailboxParam = async (slot: number, val: number) => {
+    try {
+      const res = await postJson<{ ok: boolean; error?: string }>(`${base}/mailbox/write`, {
+        mailbox_addr: mailboxAddr,
+        slot,
+        value: val,
+      });
+      if (!res.ok) throw new Error(res.error || "Mailbox 写入失败");
+      const next = [...mailboxParams];
+      next[slot] = val;
+      setMailboxParams(next);
+    } catch (e) {
+      alert(`Mailbox 写入槽位 #${slot} 失败: ${e}`);
+    }
+  };
+
+  const addFormula = () => {
+    const expr = formulaDraft.trim();
+    if (!expr) return;
+    const src = formulaSource || snap?.symbols?.[0]?.name || "";
+    if (!src) {
+      alert("请先选择自变量 x 对应的符号");
+      return;
+    }
+    try {
+      const fn = compileExpr(expr);
+      setFormulas((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          expr,
+          source: src,
+          enabled: true,
+          fn,
+          color: COLORS[(prev.length + 3) % COLORS.length],
+        },
+      ]);
+      setFormulaDraft("");
+    } catch (e) {
+      alert(`公式语法错误: ${e}`);
+    }
+  };
+
+  const removeFormula = (id: number) => {
+    setFormulas((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const toggleFormula = (id: number) => {
+    setFormulas((prev) => prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)));
+  };
+
   const addSymbol = async (name: string) => {
     try {
       const res = await postJson<SwdSnapshot>(`${base}/symbols/add`, { name });
@@ -441,6 +567,22 @@ export function SwdPage() {
         <button
           type="button"
           className="ghost"
+          style={{ fontSize: "12px", padding: "4px 10px", color: showFormulas ? "var(--cyan)" : undefined }}
+          onClick={() => setShowFormulas(!showFormulas)}
+        >
+          ƒ(x) 虚拟公式 {formulas.length > 0 && `(${formulas.length})`}
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          style={{ fontSize: "12px", padding: "4px 10px", color: showMailbox ? "var(--amber)" : undefined }}
+          onClick={() => setShowMailbox(!showMailbox)}
+        >
+          🎛 Mailbox 调参
+        </button>
+        <button
+          type="button"
+          className="ghost"
           style={{ fontSize: "12px", padding: "4px 10px" }}
           onClick={() => setShowSettings(!showSettings)}
         >
@@ -520,6 +662,176 @@ export function SwdPage() {
           </button>
         </div>
       )}
+
+      {/* Formula Virtual Channels Drawer */}
+      {showFormulas && (
+        <div
+          style={{
+            padding: "12px 20px",
+            background: "rgba(14, 18, 28, 0.95)",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--cyan)" }}>
+              ƒ(x) 新建虚拟曲线:
+            </span>
+            <input
+              style={{ flex: 1, fontSize: "12px" }}
+              placeholder="输入数学表达式，例如: sin(x)   2*x   x^2   x*57.2958 (弧度转角度)   x*0.001"
+              value={formulaDraft}
+              onChange={(e) => setFormulaDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addFormula();
+              }}
+            />
+            <select
+              style={{ width: "160px", fontSize: "12px" }}
+              value={formulaSource}
+              onChange={(e) => setFormulaSource(e.target.value)}
+            >
+              <option value="">选择自变量 x 来源...</option>
+              {snap?.symbols?.map((s) => (
+                <option key={s.name} value={s.name}>
+                  x = {s.name}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="primary" onClick={addFormula}>
+              + 添加通道
+            </button>
+          </div>
+
+          {formulas.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
+              {formulas.map((f) => (
+                <div
+                  key={f.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    background: "rgba(255,255,255,0.06)",
+                    border: `1px solid ${f.color}66`,
+                    padding: "3px 8px",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={f.enabled}
+                    onChange={() => toggleFormula(f.id)}
+                    title="在图表中显示/隐藏"
+                  />
+                  <code style={{ color: f.color, fontWeight: 600 }}>{f.expr}</code>
+                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>({f.source})</span>
+                  <button
+                    type="button"
+                    className="ghost"
+                    style={{ padding: "0 4px", fontSize: "12px", color: "var(--faint)" }}
+                    onClick={() => removeFormula(f.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MCU Mailbox Parameter Tuning Drawer */}
+      {showMailbox && (
+        <div
+          style={{
+            padding: "14px 20px",
+            background: "rgba(18, 22, 34, 0.98)",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--amber)" }}>
+                🎛 MCU Mailbox 实时调参面板 (omniscope_mailbox_t)
+              </span>
+              <span className="mono" style={{ fontSize: "11px", color: "var(--muted)" }}>
+                零停机·SWD非侵入式热整定·支持16槽位
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "11px", color: "var(--muted)" }}>基地址:</span>
+              <input
+                className="mono"
+                style={{ width: "120px", fontSize: "12px", padding: "2px 6px" }}
+                value={mailboxAddr}
+                onChange={(e) => setMailboxAddr(e.target.value)}
+                placeholder="0x20000000"
+              />
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(8, 1fr)",
+              gap: "8px",
+            }}
+          >
+            {mailboxParams.map((val, idx) => (
+              <div
+                key={idx}
+                style={{
+                  background: "rgba(0,0,0,0.35)",
+                  border: "1px solid var(--hairline)",
+                  borderRadius: "4px",
+                  padding: "6px 8px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--faint)" }}>
+                  <span>P[{idx}]</span>
+                  <span className="mono">{val.toFixed(3)}</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="mono"
+                  style={{ width: "100%", fontSize: "12px", padding: "2px 4px" }}
+                  value={val}
+                  onChange={(e) => {
+                    const next = [...mailboxParams];
+                    next[idx] = parseFloat(e.target.value) || 0;
+                    setMailboxParams(next);
+                  }}
+                  onBlur={() => writeMailboxParam(idx, mailboxParams[idx])}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") writeMailboxParam(idx, mailboxParams[idx]);
+                  }}
+                />
+                <button
+                  type="button"
+                  style={{ fontSize: "10px", padding: "1px 0", height: "20px" }}
+                  onClick={() => writeMailboxParam(idx, mailboxParams[idx])}
+                >
+                  写入
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
 
       {/* Main Workspace Split: Left Symbol Watcher, Right Oscilloscope */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
@@ -696,17 +1008,77 @@ export function SwdPage() {
                       marginTop: "8px",
                     }}
                   >
-                    <span
-                      className="mono"
-                      style={{
-                        fontSize: "17px",
-                        fontWeight: 700,
-                        color: "var(--text-strong)",
-                        letterSpacing: "-0.02em",
-                      }}
-                    >
-                      {valDisplay}
-                    </span>
+                    {editingSymbol === row.name ? (
+                      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                        <input
+                          type="text"
+                          className="mono"
+                          style={{
+                            width: "95px",
+                            height: "24px",
+                            fontSize: "13px",
+                            padding: "0 4px",
+                            background: "var(--input)",
+                            color: "var(--cyan)",
+                          }}
+                          value={editVal}
+                          autoFocus
+                          onChange={(e) => setEditVal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") writeSymbol(row.name, editVal, mode);
+                            if (e.key === "Escape") setEditingSymbol(null);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          style={{ padding: "0 6px", height: "24px", fontSize: "11px" }}
+                          onClick={() => writeSymbol(row.name, editVal, mode)}
+                        >
+                          写入
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          style={{ padding: "0 4px", height: "24px", fontSize: "11px" }}
+                          onClick={() => setEditingSymbol(null)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
+                        title="点击在线热改写变量值 (mww 无须暂停 CPU)"
+                        onClick={() => {
+                          setEditingSymbol(row.name);
+                          setEditVal(valDisplay.startsWith("Err") ? "0" : valDisplay);
+                        }}
+                      >
+                        <span
+                          className="mono"
+                          style={{
+                            fontSize: "17px",
+                            fontWeight: 700,
+                            color:
+                              writeStatus[row.name] === "ok"
+                                ? "var(--green)"
+                                : writeStatus[row.name] === "err"
+                                ? "var(--err)"
+                                : "var(--text-strong)",
+                            letterSpacing: "-0.02em",
+                            transition: "color 0.3s ease",
+                          }}
+                        >
+                          {valDisplay}
+                        </span>
+                        <span style={{ fontSize: "11px", color: "var(--cyan)", opacity: 0.6 }} title="在线热改写">
+                          ✎
+                        </span>
+                        {writeStatus[row.name] === "ok" && (
+                          <span style={{ fontSize: "10px", color: "var(--green)" }}>✓已改写</span>
+                        )}
+                      </div>
+                    )}
 
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       {/* Mini Sparkline */}

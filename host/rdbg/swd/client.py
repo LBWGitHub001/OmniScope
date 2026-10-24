@@ -390,3 +390,28 @@ def mdw_watch(client: OpenOcdTelnet, addr: int, size: int, symbol: str) -> Watch
     resp, latency_ms = client.cmd(f"mdw 0x{addr:08X} {count}")
     words = parse_mdw(resp, count)
     return WatchSample(symbol=symbol, addr=addr, size=size, words=words, latency_ms=latency_ms)
+
+
+def mww_write(client: OpenOcdTelnet, addr: int, val: int | float | str, fmt: str = "f32") -> int:
+    """Non-intrusive memory write word (mww) via OpenOCD telnet without halting target MCU."""
+    if fmt == "f32":
+        fval = float(val)
+        val_int = struct.unpack("<I", struct.pack("<f", fval))[0]
+    elif fmt == "i32":
+        ival = int(val)
+        val_int = struct.unpack("<I", struct.pack("<i", ival))[0]
+    elif fmt == "u32":
+        val_int = int(val) & 0xFFFFFFFF
+    elif fmt == "hex":
+        val_int = int(str(val), 16) & 0xFFFFFFFF
+    else:
+        try:
+            val_int = struct.unpack("<I", struct.pack("<f", float(val)))[0]
+        except Exception:
+            val_int = int(val) & 0xFFFFFFFF
+
+    resp, _ = client.cmd(f"mww 0x{addr:08X} 0x{val_int:08X}")
+    if any(k in resp.lower() for k in ("error", "fail", "unable", "invalid")):
+        raise RuntimeError(f"mww write failed: {resp}")
+    return val_int
+

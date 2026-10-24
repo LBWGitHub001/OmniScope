@@ -23,6 +23,7 @@ from ..swd.client import (
     find_latest_elf,
     list_data_symbols,
     mdw_watch,
+    mww_write,
     resolve_symbol,
     tcp_open,
 )
@@ -63,6 +64,7 @@ class SwdFeature(Feature):
         log_dir = Path.cwd() / "logs" / "swd"
         self.recorder = Recorder(log_dir)
         self.serial = SerialLink(self.publish)
+        self._client: Optional[OpenOcdTelnet] = None
 
     def attach(self, shell):
         p = getattr(self, "api_prefix", f"/api/{self.id}")
@@ -71,6 +73,8 @@ class SwdFeature(Feature):
         shell.route(p + "/symbols", self._handle_symbols)
         shell.route(p + "/symbols/add", self._handle_symbols_add, methods=("POST",))
         shell.route(p + "/symbols/remove", self._handle_symbols_remove, methods=("POST",))
+        shell.route(p + "/symbols/write", self._handle_symbols_write, methods=("POST",))
+        shell.route(p + "/mailbox/write", self._handle_mailbox_write, methods=("POST",))
         shell.route(p + "/settings", self._handle_settings, methods=("POST",))
         shell.route(p + "/serial/ports", self._handle_serial_ports)
         shell.route(p + "/serial/open", self._handle_serial_open, methods=("POST",))
@@ -226,67 +230,73 @@ class SwdFeature(Feature):
             elf_key = None
             try:
                 with OpenOcdTelnet(cfg["host"], port, timeout=2.5) as client:
-                    self.set_phase("streaming", f"正在读取 {cfg['host']}:{port}")
-                    while not stop_event.is_set():
-                        cfg = self.snapshot()
-                        interval = 1.0 / max(0.1, cfg["hz"])
-                        t_loop = time.monotonic()
-                        try:
-                            elf = find_latest_elf(Path(cfg["project"]))
-                        except RuntimeError as exc:
-                            self.set_phase("error", str(exc))
-                            stop_event.wait(1.0)
-                            break
-
-                        key = (str(elf), elf.stat().st_mtime, tuple(self.symbols))
-                        if key != elf_key:
-                            resolved = {}
-                            self.note_elf(str(elf))
-                            for name in self.symbols:
-                                try:
-                                    resolved[name] = resolve_symbol(elf, name)
-                                except RuntimeError as exc:
-                                    self.note_error(name, str(exc))
-                            elf_key = key
-
-                        if not self.symbols:
-                            self.set_phase("idle", "OpenOCD 已连接，添加一个符号开始监视")
-                            stop_event.wait(0.4)
-                            continue
-
-                        if self.phase != "streaming":
-                            self.set_phase("streaming", f"正在读取 {cfg['host']}:{port}")
-
-                        try:
-                            for name in self.symbols:
-                                if name not in resolved:
-                                    continue
-                                addr, size = resolved[name]
-                                try:
-                                    sample = mdw_watch(client, addr, size, name)
-                                except RuntimeError as exc:
-                                    self.note_error(name, str(exc))
-                                    fail_streak += 1
-                                    continue
-                                self.note_sample(sample)
-                                fail_streak = 0
-                        except (OSError, ConnectionError, TimeoutError) as exc:
-                            self.set_phase("reconnecting", str(exc))
-                            break
-
-                        if fail_streak >= 40:
-                            self.set_phase("reconnecting", "连续读取失败")
-                            break
-                        if fail_streak:
-                            time.sleep(min(interval * (1.5 ** min(fail_streak, 6)), 1.0))
+                    with self._swd_lock:
+                        self._client = client
+                    try:
+                        self.set_phase("streaming", f"正在读取 {cfg['host']}:{port}")
+                        while not stop_event.is_set():
+                            cfg = self.snapshot()
+                            interval = 1.0 / max(0.1, cfg["hz"])
+                            t_loop = time.monotonic()
                             try:
-                                client.connect()
-                            except OSError:
+                                elf = find_latest_elf(Path(cfg["project"]))
+                            except RuntimeError as exc:
+                                self.set_phase("error", str(exc))
+                                stop_event.wait(1.0)
                                 break
-                            continue
 
-                        spent = time.monotonic() - t_loop
-                        stop_event.wait(max(0.0, interval - spent))
+                            key = (str(elf), elf.stat().st_mtime, tuple(self.symbols))
+                            if key != elf_key:
+                                resolved = {}
+                                self.note_elf(str(elf))
+                                for name in self.symbols:
+                                    try:
+                                        resolved[name] = resolve_symbol(elf, name)
+                                    except RuntimeError as exc:
+                                        self.note_error(name, str(exc))
+                                elf_key = key
+
+                            if not self.symbols:
+                                self.set_phase("idle", "OpenOCD 已连接，添加一个符号开始监视")
+                                stop_event.wait(0.4)
+                                continue
+
+                            if self.phase != "streaming":
+                                self.set_phase("streaming", f"正在读取 {cfg['host']}:{port}")
+
+                            try:
+                                for name in self.symbols:
+                                    if name not in resolved:
+                                        continue
+                                    addr, size = resolved[name]
+                                    try:
+                                        sample = mdw_watch(client, addr, size, name)
+                                    except RuntimeError as exc:
+                                        self.note_error(name, str(exc))
+                                        fail_streak += 1
+                                        continue
+                                    self.note_sample(sample)
+                                    fail_streak = 0
+                            except (OSError, ConnectionError, TimeoutError) as exc:
+                                self.set_phase("reconnecting", str(exc))
+                                break
+
+                            if fail_streak >= 40:
+                                self.set_phase("reconnecting", "连续读取失败")
+                                break
+                            if fail_streak:
+                                time.sleep(min(interval * (1.5 ** min(fail_streak, 6)), 1.0))
+                                try:
+                                    client.connect()
+                                except OSError:
+                                    break
+                                continue
+
+                            spent = time.monotonic() - t_loop
+                            stop_event.wait(max(0.0, interval - spent))
+                    finally:
+                        with self._swd_lock:
+                            self._client = None
             except (OSError, ConnectionError, TimeoutError, RuntimeError) as exc:
                 self.set_phase("reconnecting", str(exc))
             stop_event.wait(0.5)
@@ -406,3 +416,67 @@ class SwdFeature(Feature):
     def _handle_logs_resume(self, handler):
         self.recorder.resume()
         send_json(handler, self.snapshot())
+
+    def _handle_symbols_write(self, handler):
+        body = json_body(handler)
+        name = str(body.get("name", "")).strip()
+        value = body.get("value")
+        fmt = str(body.get("fmt", "f32")).lower()
+        addr_in = body.get("addr")
+        if value is None:
+            send_json(handler, {"ok": False, "error": "value is required"}, code=400)
+            return
+
+        with self._swd_lock:
+            client = getattr(self, "_client", None)
+            if client is None or client.sock is None:
+                send_json(handler, {"ok": False, "error": "OpenOCD SWD 未连接，无法写入内存"}, code=503)
+                return
+
+            try:
+                if addr_in is not None:
+                    addr = int(str(addr_in), 16) if str(addr_in).startswith("0x") else int(addr_in)
+                elif name in self.latest and "addr" in self.latest[name] and self.latest[name]["addr"]:
+                    addr = int(self.latest[name]["addr"], 16)
+                else:
+                    elf = find_latest_elf(Path(self.project))
+                    addr, _ = resolve_symbol(elf, name)
+
+                val_int = mww_write(client, addr, value, fmt)
+            except Exception as e:
+                send_json(handler, {"ok": False, "error": str(e)}, code=500)
+                return
+
+        send_json(handler, {"ok": True, "name": name, "addr": f"0x{addr:08X}", "val_int": f"0x{val_int:08X}"})
+
+    def _handle_mailbox_write(self, handler):
+        body = json_body(handler)
+        mb_addr_in = body.get("mailbox_addr")
+        slot = int(body.get("slot", 0))
+        value = float(body.get("value", 0.0))
+        if mb_addr_in is None:
+            send_json(handler, {"ok": False, "error": "mailbox_addr is required"}, code=400)
+            return
+        if not (0 <= slot < 16):
+            send_json(handler, {"ok": False, "error": "slot must be in [0, 15]"}, code=400)
+            return
+
+        with self._swd_lock:
+            client = getattr(self, "_client", None)
+            if client is None or client.sock is None:
+                send_json(handler, {"ok": False, "error": "OpenOCD SWD 未连接"}, code=503)
+                return
+
+            try:
+                base_addr = int(str(mb_addr_in), 16) if str(mb_addr_in).startswith("0x") else int(mb_addr_in)
+                # params[slot] is located at base_addr + 16 + slot * 4
+                slot_addr = base_addr + 16 + slot * 4
+                mww_write(client, slot_addr, value, "f32")
+                # mark status dirty (OMNISCOPE_STATUS_HOST_DIRTY = 0x01)
+                mww_write(client, base_addr + 12, 1, "u32")
+            except Exception as e:
+                send_json(handler, {"ok": False, "error": str(e)}, code=500)
+                return
+
+        send_json(handler, {"ok": True, "slot": slot, "value": value})
+
