@@ -5,12 +5,14 @@ import { useInstance } from "../../shared/instance";
 
 type Frame = { i: number; t: number; meta: { name?: string } };
 type LogRec = { t: number; ts?: number; level: string; msg: string };
+type MarkerRec = { t: number; ts?: number; marker: any };
 type Meta = {
   duration: number;
   t0_ns?: number;
   series: Record<string, [number, number][]>;
   logs: LogRec[];
   frames: Frame[];
+  markers?: MarkerRec[];
   file?: string;
 };
 
@@ -91,7 +93,12 @@ export function ReplayPage() {
       metaRef.current = res.meta;
       lastImg.current = {};
       busRef.current?.clear();
-      busRef.current?.loadReplay(res.meta.series || {}, res.meta.logs || [], res.meta.duration || 0);
+      busRef.current?.loadReplay(
+        res.meta.series || {},
+        res.meta.logs || [],
+        res.meta.duration || 0,
+        res.meta.markers || []
+      );
       const names = [
         ...new Set((res.meta.frames || []).map((f) => f.meta?.name || "default")),
       ];

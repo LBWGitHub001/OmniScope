@@ -10,6 +10,8 @@ import {
 import zoomPlugin from "chartjs-plugin-zoom";
 import Hammer from "hammerjs";
 import { compileExpr, type ExprFn } from "./expr";
+import { type Marker } from "./markers";
+import { Scene3DView } from "./Scene3DView";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, zoomPlugin);
 (window as unknown as { Hammer: typeof Hammer }).Hammer = Hammer;
@@ -19,16 +21,19 @@ export type DataBus = {
   addLog: (level: string, msg: string, ts?: number) => void;
   setImage: (name: string, objectUrl: string) => void;
   setStreams: (names: string[]) => void;
+  addMarker?: (m: Marker) => void;
+  addMarkers?: (ms: Marker[]) => void;
   loadReplay: (
     series: Record<string, [number, number][]>,
     logs: { t: number; ts?: number; level: string; msg: string }[],
-    duration: number
+    duration: number,
+    markers?: { t: number; ts?: number; marker: Marker }[]
   ) => void;
   clear: () => void;
   resetView: () => void;
 };
 
-type PanelKind = "plot" | "log" | "image";
+type PanelKind = "plot" | "log" | "image" | "3d";
 type PanelState = { kind: PanelKind; imgSel: string };
 type LogLine = { level: string; msg: string; ts?: number; t?: number };
 type ViewMode = "sliding" | "centered" | "paused";
@@ -110,6 +115,7 @@ export function DebugWorkbench({
   const [formulas, setFormulas] = useState<WorkbenchFormula[]>([]);
   const [formulaDraft, setFormulaDraft] = useState("");
   const [formulaSource, setFormulaSource] = useState("");
+  const [markers, setMarkers] = useState<Marker[]>([]);
   const formulasRef = useRef(formulas);
   formulasRef.current = formulas;
 
@@ -459,7 +465,13 @@ export function DebugWorkbench({
         streamBuf.current.push(...names);
         schedule();
       },
-      loadReplay(series, logs, duration) {
+      addMarker(m) {
+        setMarkers((prev) => [...prev.slice(-300), m]);
+      },
+      addMarkers(ms) {
+        setMarkers((prev) => [...prev.slice(-300), ...ms]);
+      },
+      loadReplay(series, logs, duration, replayMarkers) {
         const nextSeries: Record<string, { x: number; y: number }[]> = {};
         const nextFields = { ...fieldsRef.current };
         for (const [field, pts] of Object.entries(series || {})) {
@@ -485,6 +497,9 @@ export function DebugWorkbench({
             t: l.t,
           }))
         );
+        if (replayMarkers) {
+          setMarkers(replayMarkers.map((rm) => rm.marker));
+        }
         chartDirty.current = true;
         schedule();
       },
@@ -492,6 +507,7 @@ export function DebugWorkbench({
         seriesRef.current = {};
         lastX.current = 0;
         logBuf.current = [];
+        setMarkers([]);
         chartDirty.current = false;
         Object.values(imgBuf.current).forEach((u) => {
           if (u.startsWith("blob:")) URL.revokeObjectURL(u);
@@ -689,6 +705,7 @@ export function DebugWorkbench({
                   <option value="plot">绘图</option>
                   <option value="log">日志</option>
                   <option value="image">图像</option>
+                  <option value="3d">3D 视图 (Markers)</option>
                 </select>
                 <button
                   type="button"
@@ -771,6 +788,12 @@ export function DebugWorkbench({
                         return next;
                       })
                     }
+                  />
+                )}
+                {k === "3d" && (
+                  <Scene3DView
+                    markers={markers}
+                    onClear={() => setMarkers([])}
                   />
                 )}
               </div>

@@ -7,13 +7,27 @@ import { DebugWorkbench, type DataBus } from "../../shared/DebugWorkbench";
 function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: { current: number | null }) {
   if (!bus) return;
   const type = msg.type as string | undefined;
+  if (type === "marker" && msg.marker && typeof msg.marker === "object") {
+    bus.addMarker?.(msg.marker as any);
+    return;
+  }
+  if (type === "markers" && Array.isArray(msg.markers)) {
+    bus.addMarkers?.(msg.markers as any[]);
+    return;
+  }
   if (type === "plot" || (!type && msg.data && typeof msg.data === "object")) {
     const data = (msg.data || msg) as Record<string, unknown>;
+    if (data.marker && typeof data.marker === "object") {
+      bus.addMarker?.(data.marker as any);
+    }
+    if (data.markers && Array.isArray(data.markers)) {
+      bus.addMarkers?.(data.markers as any[]);
+    }
     const ts = Number(msg.ts || data.ts || 0);
     if (!t0Ref.current && ts) t0Ref.current = ts;
     const t = t0Ref.current ? (ts - t0Ref.current) / 1e9 : 0;
     for (const [k, v] of Object.entries(data)) {
-      if (k === "ts" || k === "_from" || k === "type" || k === "hb") continue;
+      if (k === "ts" || k === "_from" || k === "type" || k === "hb" || k === "marker" || k === "markers") continue;
       if (typeof v === "number") bus.addPoint(k, t, v);
     }
     return;
