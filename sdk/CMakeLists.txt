@@ -14,7 +14,6 @@ option(OMNISCOPE_BUILD_MCU    "Build OmniScope MCU C library"  ON)
 option(OMNISCOPE_BUILD_LOGGER "Build OmniScope Logger library" ON)
 option(OMNISCOPE_BUILD_RMBAG  "Build OmniScope RMBag library"  ON)
 option(OMNISCOPE_BUILD_CALIBRATION "Build OmniScope Calibration tools" ON)
-option(OMNISCOPE_BUILD_TOOLS       "Build OmniScope Robot tools & simulators" ON)
 
 set(OMNISCOPE_EXPORTED_TARGETS "")
 
@@ -44,10 +43,6 @@ endif()
 if(OMNISCOPE_BUILD_CALIBRATION)
     add_subdirectory(calibration)
     list(APPEND OMNISCOPE_EXPORTED_TARGETS omniscope_calibrator)
-endif()
-
-if(OMNISCOPE_BUILD_TOOLS)
-    add_subdirectory(tools)
 endif()
 
 # 3. 统一聚合目标 OmniScope::All

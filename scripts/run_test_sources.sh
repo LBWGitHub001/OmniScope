@@ -6,12 +6,12 @@
 set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="$DIR/sdk/build/tools/omniscope_data_sources"
+BIN="$DIR/test/build/omniscope_data_sources"
 
 if [ ! -f "$BIN" ]; then
-    echo "[!] Building test data sources binary..."
-    cmake -B "$DIR/sdk/build" -S "$DIR/sdk"
-    cmake --build "$DIR/sdk/build" --target omniscope_data_sources
+    echo "[!] Building test data sources binary in test/..."
+    cmake -B "$DIR/test/build" -S "$DIR/test"
+    cmake --build "$DIR/test/build"
 fi
 
 SCENARIO="${1:-sentry}"
