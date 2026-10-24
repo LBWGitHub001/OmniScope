@@ -11,6 +11,7 @@
 
 #include "tools/exiter.hpp"
 #include "tools/remote_logger.hpp"
+#include "omniscope/marker.hpp"
 
 int main(int argc, char * argv[])
 {
@@ -94,6 +95,48 @@ int main(int argc, char * argv[])
       {"triangle", tri},
       {"square", sqr},
     });
+
+    // 周期性广播 3D Marker 空间数据 (供 WebGL/Three.js 实时 3D 渲染)
+    if (iter % 5 == 0) {
+      omniscope::Marker chassis;
+      chassis.ns = "robot";
+      chassis.id = 1;
+      chassis.type = omniscope::MarkerType::CUBE;
+      chassis.action = omniscope::MarkerAction::ADD;
+      chassis.pose.position.x = 0.0f;
+      chassis.pose.position.y = 0.0f;
+      chassis.pose.position.z = 0.2f;
+      chassis.scale.x = 0.6f; chassis.scale.y = 0.45f; chassis.scale.z = 0.25f;
+      chassis.color.r = 0.06f; chassis.color.g = 0.73f; chassis.color.b = 0.51f; chassis.color.a = 0.75f;
+
+      omniscope::Marker arrow;
+      arrow.ns = "gimbal";
+      arrow.id = 2;
+      arrow.type = omniscope::MarkerType::ARROW;
+      arrow.action = omniscope::MarkerAction::ADD;
+      float target_x = static_cast<float>(2.0 * std::cos(elapsed * 0.8));
+      float target_y = static_cast<float>(2.0 * std::sin(elapsed * 0.8));
+      arrow.points = {
+        {0.0f, 0.0f, 0.35f},
+        {target_x, target_y, 0.5f}
+      };
+      arrow.scale.x = 0.06f; arrow.scale.y = 0.12f; arrow.scale.z = 0.15f;
+      arrow.color.r = 0.0f; arrow.color.g = 0.94f; arrow.color.b = 1.0f; arrow.color.a = 1.0f;
+
+      omniscope::Marker target_tag;
+      target_tag.ns = "target";
+      target_tag.id = 3;
+      target_tag.type = omniscope::MarkerType::TEXT_VIEW_FACING;
+      target_tag.action = omniscope::MarkerAction::ADD;
+      target_tag.pose.position.x = target_x;
+      target_tag.pose.position.y = target_y;
+      target_tag.pose.position.z = 0.85f;
+      target_tag.scale.z = 0.35f;
+      target_tag.text = "Target Armor #1 (dist=2.0m)";
+      target_tag.color.r = 1.0f; target_tag.color.g = 0.8f; target_tag.color.b = 0.2f; target_tag.color.a = 1.0f;
+
+      omniscope::RemoteLogger::instance().plot_markers({chassis, arrow, target_tag});
+    }
 
     if (iter % 200 == 0) {
       tools::RemoteLogger::instance().log(

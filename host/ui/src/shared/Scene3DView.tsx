@@ -6,6 +6,7 @@ import { Marker, MarkerAction, MarkerType, MARKER_TYPE_NAMES } from "./markers";
 interface Scene3DViewProps {
   markers: Marker[];
   onClear?: () => void;
+  onLoadDemo?: (markers: Marker[]) => void;
   className?: string;
 }
 
@@ -316,7 +317,7 @@ function disposeHierarchy(obj: THREE.Object3D) {
   });
 }
 
-export function Scene3DView({ markers, onClear, className = "" }: Scene3DViewProps) {
+export function Scene3DView({ markers, onClear, onLoadDemo, className = "" }: Scene3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -559,10 +560,163 @@ export function Scene3DView({ markers, onClear, className = "" }: Scene3DViewPro
     }));
   };
 
+  const handleLoadDemo = useCallback(() => {
+    const now = Date.now() / 1000;
+    const demo: Marker[] = [
+      // 1. Robot Chassis Base (CUBE)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "robot",
+        id: 1,
+        type: MarkerType.CUBE,
+        action: MarkerAction.ADD,
+        pose: {
+          position: { x: 0, y: 0, z: 0.2 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+        scale: { x: 0.65, y: 0.5, z: 0.28 },
+        color: { r: 0.06, g: 0.73, b: 0.51, a: 0.75 },
+      },
+      // 2. Turret Gimbal Heading (ARROW)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "gimbal",
+        id: 2,
+        type: MarkerType.ARROW,
+        action: MarkerAction.ADD,
+        points: [
+          { x: 0, y: 0, z: 0.35 },
+          { x: 1.8, y: 0.9, z: 0.55 },
+        ],
+        scale: { x: 0.08, y: 0.16, z: 0.2 },
+        color: { r: 0.0, g: 0.94, b: 1.0, a: 1.0 },
+      },
+      // 3. Enemy Target Robot (CYLINDER)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "target",
+        id: 3,
+        type: MarkerType.CYLINDER,
+        action: MarkerAction.ADD,
+        pose: {
+          position: { x: 2.4, y: 1.2, z: 0.35 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+        scale: { x: 0.5, y: 0.5, z: 0.7 },
+        color: { r: 0.96, g: 0.62, b: 0.04, a: 0.8 },
+      },
+      // 4. Target Label Tag (TEXT_VIEW_FACING)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "target",
+        id: 4,
+        type: MarkerType.TEXT_VIEW_FACING,
+        action: MarkerAction.ADD,
+        pose: {
+          position: { x: 2.4, y: 1.2, z: 0.95 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+        scale: { x: 0.35, y: 0.35, z: 0.35 },
+        color: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+        text: "Enemy Sentry #1 [2.68m]",
+      },
+      // 5. Ballistic trajectory curve (LINE_STRIP)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "trajectory",
+        id: 5,
+        type: MarkerType.LINE_STRIP,
+        action: MarkerAction.ADD,
+        points: Array.from({ length: 25 }, (_, idx) => {
+          const s = idx / 24;
+          return {
+            x: s * 2.4,
+            y: s * 1.2,
+            z: 0.35 + 0.9 * Math.sin(s * Math.PI) - 0.2 * s,
+          };
+        }),
+        scale: { x: 0.04, y: 0.04, z: 0.04 },
+        color: { r: 0.55, g: 0.36, b: 0.96, a: 0.9 },
+      },
+      // 6. Impact Prediction Sphere (SPHERE)
+      {
+        header: { frame_id: "base_link", stamp: { sec: Math.floor(now), nanosec: 0 } },
+        ns: "trajectory",
+        id: 6,
+        type: MarkerType.SPHERE,
+        action: MarkerAction.ADD,
+        pose: {
+          position: { x: 2.4, y: 1.2, z: 0.35 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+        scale: { x: 0.16, y: 0.16, z: 0.16 },
+        color: { r: 0.93, g: 0.28, b: 0.6, a: 1.0 },
+      },
+    ];
+    if (onLoadDemo) {
+      onLoadDemo(demo);
+    } else {
+      demo.forEach(processMarker);
+    }
+  }, [onLoadDemo, processMarker]);
+
   return (
     <div className={`scene3d-container ${className}`} style={{ position: "relative", width: "100%", height: "100%" }}>
       {/* 3D WebGL Canvas */}
       <div ref={mountRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />
+
+      {/* Empty State Prompt when no markers */}
+      {activeCount === 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            textAlign: "center",
+            background: "rgba(10, 14, 24, 0.92)",
+            padding: "20px 28px",
+            borderRadius: 8,
+            border: "1px solid rgba(0, 240, 255, 0.3)",
+            pointerEvents: "auto",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
+            zIndex: 10,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          }}
+        >
+          <div style={{ fontSize: 32 }}>🧊</div>
+          <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>
+            ROS 2 3D 空间可视化环境就绪
+          </div>
+          <div style={{ color: "var(--muted)", fontSize: 12, maxWidth: 320, lineHeight: 1.5 }}>
+            右手 Z-Up 空间坐标系已启动。支持实时接收并渲染 10 种 ROS 2 3D 标记。
+          </div>
+          <button
+            type="button"
+            onClick={handleLoadDemo}
+            style={{
+              marginTop: 4,
+              padding: "7px 18px",
+              fontSize: 12,
+              background: "rgba(0, 240, 255, 0.18)",
+              border: "1px solid var(--cyan)",
+              color: "var(--cyan)",
+              borderRadius: 4,
+              cursor: "pointer",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            🎯 一键加载 3D 演示标记 (Demo)
+          </button>
+        </div>
+      )}
 
       {/* Floating HUD Toolbar */}
       <div
@@ -627,6 +781,21 @@ export function Scene3DView({ markers, onClear, className = "" }: Scene3DViewPro
 
         {/* Right: Camera & Grid Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
+          <button
+            onClick={handleLoadDemo}
+            className="ghost"
+            style={{
+              height: 26,
+              fontSize: 11,
+              padding: "0 8px",
+              background: "rgba(0, 240, 255, 0.15)",
+              borderColor: "var(--cyan)",
+              color: "var(--cyan)",
+            }}
+            title="加载 3D 演示标记"
+          >
+            🎯 Demo
+          </button>
           <button
             onClick={handleResetCamera}
             className="ghost"

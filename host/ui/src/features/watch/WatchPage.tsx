@@ -143,6 +143,23 @@ export function WatchPage() {
       <div className="feature-toolbar">
         <strong>Watch</strong>
         <span className="mono">{selected || "未选择车辆"}{port ? ` · UDP ${port}` : ""} · {state}</span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "2px 8px",
+            borderRadius: 4,
+            fontSize: 11,
+            background: "rgba(0, 240, 255, 0.12)",
+            border: "1px solid rgba(0, 240, 255, 0.35)",
+            color: "var(--cyan)",
+            fontFamily: "var(--mono)",
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--cyan)" }} />
+          3D Marker 空间视图就绪
+        </span>
         {err && <span className="err-text">{err}</span>}
         <button type="button" className="ghost" onClick={() => busRef.current?.clear()}>
           清除

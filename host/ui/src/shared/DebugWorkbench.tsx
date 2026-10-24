@@ -90,9 +90,56 @@ export function DebugWorkbench({
 }) {
   const [panels, setPanels] = useState<PanelState[]>([
     { kind: "plot", imgSel: "" },
-    { kind: "log", imgSel: "" },
+    { kind: "3d", imgSel: "" },
     { kind: "image", imgSel: "" },
+    { kind: "log", imgSel: "" },
   ]);
+  const [layoutMode, setLayoutMode] = useState<"grid" | "horizontal">("grid");
+  const [prevPanels, setPrevPanels] = useState<PanelState[] | null>(null);
+
+  const applyGrid4 = useCallback(() => {
+    setPanels([
+      { kind: "plot", imgSel: "" },
+      { kind: "3d", imgSel: "" },
+      { kind: "image", imgSel: "" },
+      { kind: "log", imgSel: "" },
+    ]);
+    setLayoutMode("grid");
+    setPrevPanels(null);
+  }, []);
+
+  const apply3DFocus = useCallback(() => {
+    setPanels([{ kind: "3d", imgSel: "" }]);
+    setLayoutMode("horizontal");
+  }, []);
+
+  const applyPlotFocus = useCallback(() => {
+    setPanels([{ kind: "plot", imgSel: "" }]);
+    setLayoutMode("horizontal");
+  }, []);
+
+  const applyDualPlot3D = useCallback(() => {
+    setPanels([
+      { kind: "plot", imgSel: "" },
+      { kind: "3d", imgSel: "" },
+    ]);
+    setLayoutMode("horizontal");
+  }, []);
+
+  const toggleKind = useCallback((kind: PanelKind) => {
+    setPanels((prev) => {
+      const exists = prev.some((p) => p.kind === kind);
+      if (exists) {
+        if (prev.length === 1) return prev;
+        const next = prev.filter((p) => p.kind !== kind);
+        return next;
+      } else {
+        const next = [...prev, { kind, imgSel: "" }];
+        if (next.length === 4) setLayoutMode("grid");
+        return next;
+      }
+    });
+  }, []);
   const [sidebar, setSidebar] = useState(true);
   const [mode, setMode] = useState<ViewMode>("sliding");
   const [win, setWin] = useState(10);
@@ -678,128 +725,232 @@ export function DebugWorkbench({
           </div>
         )}
       </aside>
-      <div className="tile-root">
-        {panels.map((panel, i) => {
-          const k = panel.kind;
-          const imgSel = panel.imgSel || names[0] || "";
-          return (
-            <div className="tile-pane" key={i}>
-              <div className="tile-head">
-                <select
-                  value={k}
-                  onChange={(e) => {
-                    const kind = e.target.value as PanelKind;
-                    setPanels((prev) => {
-                      const n = [...prev];
-                      const cur = n[i];
-                      n[i] = {
-                        ...cur,
-                        kind,
-                        imgSel:
-                          kind === "image" && !cur.imgSel ? names[0] || "" : cur.imgSel,
-                      };
-                      return n;
-                    });
-                  }}
-                >
-                  <option value="plot">绘图</option>
-                  <option value="log">日志</option>
-                  <option value="image">图像</option>
-                  <option value="3d">3D 视图 (Markers)</option>
-                </select>
-                <button
-                  type="button"
-                  className="ghost"
-                  title="向右拆分"
-                  onClick={() => {
-                    setPanels((prev) => {
-                      const n = [...prev];
-                      n.splice(i + 1, 0, { kind: "plot", imgSel: "" });
-                      return n.slice(0, 6);
-                    });
-                  }}
-                >
-                  拆分
-                </button>
-                {panels.length > 1 && (
+      <div className="workbench-main">
+        {/* Top Control Bar */}
+        <div className="workbench-bar">
+          <div className="wb-group">
+            <span className="wb-label">布局模式:</span>
+            <button
+              type="button"
+              className={panels.length === 4 && layoutMode === "grid" ? "wb-btn active cyber-glow" : "wb-btn"}
+              onClick={applyGrid4}
+              title="四分屏布局: 曲线 + 3D空间 + 视讯 + 日志"
+            >
+              🎛️ 2×2 四分屏 (含 3D)
+            </button>
+            <button
+              type="button"
+              className={panels.length === 1 && panels[0].kind === "3d" ? "wb-btn active cyber-glow" : "wb-btn"}
+              onClick={apply3DFocus}
+              title="3D 空间全屏沉浸视口"
+            >
+              🧊 3D 空间专注
+            </button>
+            <button
+              type="button"
+              className={panels.length === 2 && panels.some((p) => p.kind === "plot") && panels.some((p) => p.kind === "3d") ? "wb-btn active" : "wb-btn"}
+              onClick={applyDualPlot3D}
+              title="曲线与 3D 双屏视口"
+            >
+              📈 曲线 + 🧊 3D
+            </button>
+            <button
+              type="button"
+              className={panels.length === 1 && panels[0].kind === "plot" ? "wb-btn active" : "wb-btn"}
+              onClick={applyPlotFocus}
+              title="曲线全屏模式"
+            >
+              📈 曲线专注
+            </button>
+          </div>
+
+          <div className="wb-group">
+            <span className="wb-label">视口开关:</span>
+            <button
+              type="button"
+              className={panels.some((p) => p.kind === "plot") ? "wb-btn active" : "wb-btn"}
+              onClick={() => toggleKind("plot")}
+            >
+              📈 曲线
+            </button>
+            <button
+              type="button"
+              className={panels.some((p) => p.kind === "3d") ? "wb-btn active cyber-glow" : "wb-btn"}
+              onClick={() => toggleKind("3d")}
+            >
+              🧊 3D 空间 {markers.length > 0 ? `(${markers.length})` : ""}
+            </button>
+            <button
+              type="button"
+              className={panels.some((p) => p.kind === "image") ? "wb-btn active" : "wb-btn"}
+              onClick={() => toggleKind("image")}
+            >
+              📷 图像
+            </button>
+            <button
+              type="button"
+              className={panels.some((p) => p.kind === "log") ? "wb-btn active" : "wb-btn"}
+              onClick={() => toggleKind("log")}
+            >
+              📋 日志
+            </button>
+          </div>
+        </div>
+
+        {/* Tiles Container */}
+        <div className={`tile-root ${layoutMode === "grid" && panels.length === 4 ? "tile-grid-2x2" : ""}`}>
+          {panels.map((panel, i) => {
+            const k = panel.kind;
+            const imgSel = panel.imgSel || names[0] || "";
+            const isSingle = panels.length === 1;
+            return (
+              <div className="tile-pane" key={i}>
+                <div className="tile-head">
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 12 }}>
+                    <span>{k === "3d" ? "🧊" : k === "plot" ? "📈" : k === "image" ? "📷" : "📋"}</span>
+                    <span style={{ color: k === "3d" ? "var(--cyan)" : undefined }}>
+                      {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : "运行日志"}
+                    </span>
+                  </div>
+                  <select
+                    value={k}
+                    style={{ marginLeft: 8 }}
+                    onChange={(e) => {
+                      const kind = e.target.value as PanelKind;
+                      setPanels((prev) => {
+                        const n = [...prev];
+                        const cur = n[i];
+                        n[i] = {
+                          ...cur,
+                          kind,
+                          imgSel:
+                            kind === "image" && !cur.imgSel ? names[0] || "" : cur.imgSel,
+                        };
+                        return n;
+                      });
+                    }}
+                  >
+                    <option value="plot">绘图</option>
+                    <option value="3d">3D 视图 (Markers)</option>
+                    <option value="image">图像</option>
+                    <option value="log">日志</option>
+                  </select>
                   <button
                     type="button"
                     className="ghost"
-                    title="关闭"
-                    onClick={() => setPanels((prev) => prev.filter((_, j) => j !== i))}
+                    title={isSingle ? "还原多窗视口" : "最大化当前视口"}
+                    onClick={() => {
+                      if (isSingle) {
+                        if (prevPanels && prevPanels.length > 1) {
+                          setPanels(prevPanels);
+                          setPrevPanels(null);
+                        } else {
+                          applyGrid4();
+                        }
+                      } else {
+                        setPrevPanels(panels);
+                        setPanels([panel]);
+                        setLayoutMode("horizontal");
+                      }
+                    }}
                   >
-                    ×
+                    {isSingle ? "◫ 还原" : "⛶ 最大化"}
                   </button>
-                )}
-              </div>
-              <div className="tile-content">
-                {k === "plot" &&
-                  (i === plotIndex ? (
-                    <div
-                      className="plot-host"
-                      ref={hostRef}
-                      onPointerDown={(e) => {
-                        if (!replayRef.current || !seekRef.current) return;
-                        const chart = chartRef.current;
-                        if (!chart || cursorRef.current == null) return;
-                        const rect = chart.canvas.getBoundingClientRect();
-                        const px = e.clientX - rect.left;
-                        const cx = chart.scales.x.getPixelForValue(cursorRef.current);
-                        if (Math.abs(px - cx) > 12) return;
-                        dragCursor.current = true;
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        e.preventDefault();
-                      }}
-                      onPointerMove={(e) => {
-                        if (!dragCursor.current || !seekRef.current) return;
-                        const chart = chartRef.current;
-                        if (!chart) return;
-                        const rect = chart.canvas.getBoundingClientRect();
-                        const t = chart.scales.x.getValueForPixel(e.clientX - rect.left);
-                        if (t != null && Number.isFinite(t)) seekRef.current(t);
-                      }}
-                      onPointerUp={() => {
-                        dragCursor.current = false;
-                      }}
-                    >
-                      <canvas ref={canvasRef} />
-                    </div>
-                  ) : (
-                    <div className="mono muted" style={{ padding: 8 }}>
-                      绘图已在其他面板
-                    </div>
-                  ))}
-                {k === "log" && (
-                  <LogPane
-                    lines={logs}
-                    cursorT={replay ? cursorT : null}
-                    onSeek={replay ? onSeek : undefined}
-                  />
-                )}
-                {k === "image" && (
-                  <ImagePane
-                    names={names}
-                    sel={imgSel}
-                    url={images[imgSel]}
-                    onSel={(n) =>
+                  <button
+                    type="button"
+                    className="ghost"
+                    title="向右拆分"
+                    onClick={() => {
                       setPanels((prev) => {
-                        const next = [...prev];
-                        next[i] = { ...next[i], imgSel: n };
-                        return next;
-                      })
-                    }
-                  />
-                )}
-                {k === "3d" && (
-                  <Scene3DView
-                    markers={markers}
-                    onClear={() => setMarkers([])}
-                  />
-                )}
+                        const n = [...prev];
+                        n.splice(i + 1, 0, { kind: "plot", imgSel: "" });
+                        return n.slice(0, 6);
+                      });
+                    }}
+                  >
+                    拆分
+                  </button>
+                  {panels.length > 1 && (
+                    <button
+                      type="button"
+                      className="ghost"
+                      title="关闭"
+                      onClick={() => setPanels((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                <div className="tile-content">
+                  {k === "plot" &&
+                    (i === plotIndex ? (
+                      <div
+                        className="plot-host"
+                        ref={hostRef}
+                        onPointerDown={(e) => {
+                          if (!replayRef.current || !seekRef.current) return;
+                          const chart = chartRef.current;
+                          if (!chart || cursorRef.current == null) return;
+                          const rect = chart.canvas.getBoundingClientRect();
+                          const px = e.clientX - rect.left;
+                          const cx = chart.scales.x.getPixelForValue(cursorRef.current);
+                          if (Math.abs(px - cx) > 12) return;
+                          dragCursor.current = true;
+                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                          e.preventDefault();
+                        }}
+                        onPointerMove={(e) => {
+                          if (!dragCursor.current || !seekRef.current) return;
+                          const chart = chartRef.current;
+                          if (!chart) return;
+                          const rect = chart.canvas.getBoundingClientRect();
+                          const t = chart.scales.x.getValueForPixel(e.clientX - rect.left);
+                          if (t != null && Number.isFinite(t)) seekRef.current(t);
+                        }}
+                        onPointerUp={() => {
+                          dragCursor.current = false;
+                        }}
+                      >
+                        <canvas ref={canvasRef} />
+                      </div>
+                    ) : (
+                      <div className="mono muted" style={{ padding: 8 }}>
+                        绘图已在其他面板
+                      </div>
+                    ))}
+                  {k === "log" && (
+                    <LogPane
+                      lines={logs}
+                      cursorT={replay ? cursorT : null}
+                      onSeek={replay ? onSeek : undefined}
+                    />
+                  )}
+                  {k === "image" && (
+                    <ImagePane
+                      names={names}
+                      sel={imgSel}
+                      url={images[imgSel]}
+                      onSel={(n) =>
+                        setPanels((prev) => {
+                          const next = [...prev];
+                          next[i] = { ...next[i], imgSel: n };
+                          return next;
+                        })
+                      }
+                    />
+                  )}
+                  {k === "3d" && (
+                    <Scene3DView
+                      markers={markers}
+                      onClear={() => setMarkers([])}
+                      onLoadDemo={(demo) => setMarkers(demo)}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

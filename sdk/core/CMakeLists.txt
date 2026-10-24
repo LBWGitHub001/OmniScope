@@ -12,12 +12,8 @@ find_package(yaml-cpp QUIET)
 add_library(omniscope_core STATIC
     src/crc.cpp
     src/exiter.cpp
-    src/extended_kalman_filter.cpp
     src/img_tools.cpp
     src/math_tools.cpp
-    src/pid.cpp
-    src/ransac_sine_fitter.cpp
-    src/trajectory.cpp
 )
 add_library(OmniScope::Core ALIAS omniscope_core)
 
