@@ -3,6 +3,7 @@ project(omniscope_tools CXX)
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio highgui)
 find_package(nlohmann_json REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # 1. Standalone fake robot simulator
 add_executable(omniscope_fake_robot fake_robot.cpp)
@@ -35,4 +36,15 @@ add_executable(omniscope_multi_sender_test multi_sender_test.cpp)
 target_link_libraries(omniscope_multi_sender_test PRIVATE
     OmniScope::Logger
     nlohmann_json::nlohmann_json
+)
+
+# 5. Comprehensive Pure C++ Test Runner (Excludes embedded hardware tests)
+add_executable(omniscope_tests test_runner.cpp)
+target_link_libraries(omniscope_tests PRIVATE
+    OmniScope::Logger
+    OmniScope::Core
+    omniscope_calibrator
+    ${OpenCV_LIBS}
+    nlohmann_json::nlohmann_json
+    yaml-cpp
 )

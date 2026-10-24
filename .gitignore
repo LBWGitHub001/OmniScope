@@ -36,3 +36,7 @@ legacy_backup.tar.gz
 .tools/
 .DS_Store
 Thumbs.db
+
+# Test directories (all testing is in C++ under sdk/tools)
+tests/
+test/
