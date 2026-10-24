@@ -33,6 +33,9 @@ class SerialFeature(Feature):
     def on_stop(self):
         self.serial.close()
 
+    def run(self, stop_event):
+        stop_event.wait()
+
     def publish(self, event: dict) -> None:
         line = json.dumps(event, ensure_ascii=False)
         self.sse.put(line)

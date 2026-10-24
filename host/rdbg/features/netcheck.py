@@ -38,6 +38,7 @@ class NetcheckFeature(Feature):
 
     def attach(self, shell):
         p = getattr(self, "api_prefix", "/api/netcheck")
+        shell.route(p + "/state", self._handle_state)
         shell.route(p + "/discover/start", self._disc_start, methods=("POST",))
         shell.route(p + "/discover/stop", self._disc_stop, methods=("POST",))
         shell.route(p + "/discover/beacons", self._disc_list)
@@ -46,6 +47,13 @@ class NetcheckFeature(Feature):
         shell.route(p + "/echo/status", self._echo_status)
         shell.route(p + "/ping", self._ping, methods=("POST",))
         shell.route(p + "/jobs/", self._job, prefix=True)
+
+    def _handle_state(self, handler):
+        with self._beacon_lock:
+            beacons = list(self._beacons)
+        with self._wlock:
+            workers = {k: v.get("state", "idle") for k, v in self._workers.items()}
+        send_json(handler, {"ok": True, "beacons": beacons, "workers": workers})
 
     def on_start(self, config):
         pass

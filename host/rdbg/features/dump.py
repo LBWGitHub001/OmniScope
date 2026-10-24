@@ -34,7 +34,7 @@ class DumpFeature(Feature):
     def _handle_run(self, handler):
         body = json_body(handler)
         path = body.get("path") or body.get("rlog") or ""
-        out = body.get("output") or body.get("out_dir") or None
+        out = body.get("output") or body.get("out_dir") or body.get("out") or None
         fps = float(body.get("fps") or 10.0)
         if not path:
             send_json(handler, {"ok": False, "error": "path required"}, code=400)

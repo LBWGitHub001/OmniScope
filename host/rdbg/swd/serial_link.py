@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import glob
+import os
+import select
+import sys
 import threading
 import time
 from typing import Callable, List, Optional
+
+try:
+    import termios
+except ImportError:
+    termios = None
 
 
 def _serial_text(data: bytes) -> str:
@@ -20,6 +29,75 @@ def parse_hex_payload(text: str) -> bytes:
     if len(parts) == 1 and len(parts[0]) % 2 == 0:
         return bytes.fromhex(parts[0])
     return bytes(int(part, 16) for part in parts)
+
+
+class _PosixSerial:
+    """Zero-dependency POSIX serial/PTY wrapper using standard library os, termios, select."""
+
+    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 0.2):
+        self.port = port
+        self.baudrate = baudrate
+        self.timeout = timeout
+        self.is_open = False
+        self.fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            if termios and os.isatty(self.fd):
+                attrs = termios.tcgetattr(self.fd)
+                attrs[3] = attrs[3] & ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+                attrs[1] = attrs[1] & ~termios.OPOST
+                cflags_mask = termios.CSIZE | termios.PARENB | termios.CSTOPB
+                if hasattr(termios, "CRTSCTS"):
+                    cflags_mask |= termios.CRTSCTS
+                attrs[2] = (attrs[2] & ~cflags_mask) | termios.CS8 | termios.CREAD | termios.CLOCAL
+                attrs[0] = attrs[0] & ~(termios.IXON | termios.IXOFF | termios.IXANY | termios.ICRNL | termios.INLCR | termios.IGNCR)
+
+                baud_map = {
+                    9600: termios.B9600,
+                    19200: termios.B19200,
+                    38400: termios.B38400,
+                    57600: termios.B57600,
+                    115200: termios.B115200,
+                    230400: termios.B230400,
+                    460800: getattr(termios, "B460800", termios.B115200),
+                    921600: getattr(termios, "B921600", termios.B115200),
+                    1000000: getattr(termios, "B1000000", termios.B115200),
+                    2000000: getattr(termios, "B2000000", termios.B115200),
+                }
+                speed = baud_map.get(int(baudrate), termios.B115200)
+                attrs[4] = speed
+                attrs[5] = speed
+                termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+            self.is_open = True
+        except Exception:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+            raise
+
+    def read(self, size: int = 4096) -> bytes:
+        if not self.is_open:
+            return b""
+        r, _, _ = select.select([self.fd], [], [], self.timeout)
+        if self.fd in r:
+            try:
+                return os.read(self.fd, size)
+            except (BlockingIOError, OSError):
+                return b""
+        return b""
+
+    def write(self, data: bytes) -> int:
+        if not self.is_open:
+            raise RuntimeError("Port not open")
+        return os.write(self.fd, data)
+
+    def close(self):
+        if self.is_open:
+            self.is_open = False
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
 
 
 class SerialLink:
@@ -45,15 +123,19 @@ class SerialLink:
         except Exception:
             pass
         if not ports:
-            import glob
             for p in sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")):
                 ports.append({"device": p, "description": "USB/ACM Serial Device"})
         return ports
 
     def open(self, port: str, baud: int) -> dict:
-        import serial
         self.close()
-        ser = serial.Serial(port, baudrate=int(baud), timeout=0.2)
+        ser = None
+        try:
+            import serial
+            ser = serial.Serial(port, baudrate=int(baud), timeout=0.2)
+        except ImportError:
+            ser = _PosixSerial(port, baudrate=int(baud), timeout=0.2)
+
         self.stop_ev.clear()
         with self.lock:
             self.ser = ser
