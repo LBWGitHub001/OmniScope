@@ -27,7 +27,7 @@ class CalibrateFeature(FleetBoundFeature):
     @property
     def ui_path(self):
         iid = getattr(self, "instance_id", "")
-        return f"/calibrate.html?i={iid}" if iid else "/calibrate.html"
+        return f"/i/{iid}" if iid else "/"
 
     def attach(self, shell):
         p = getattr(self, "api_prefix", "/api/calibrate")

@@ -1,5 +1,6 @@
 import type { FeatureModule } from "./types";
 import { WatchPage } from "./watch/WatchPage";
+import { CalibratePage } from "./calibrate/CalibratePage";
 import { ReplayPage } from "./replay/ReplayPage";
 import { DumpPage } from "./dump/DumpPage";
 import { NetcheckPage } from "./netcheck/NetcheckPage";
@@ -18,8 +19,9 @@ export const FEATURE_MODULES: FeatureModule[] = [
   {
     id: "calibrate",
     title: "Calibrate",
-    description: "棋盘格相机内参标定：覆盖度、采样、一键标定",
+    description: "棋盘格相机内参标定：空间覆盖度、采样、一键求解",
     route: "/calibrate",
+    Component: CalibratePage,
   },
   {
     id: "replay",

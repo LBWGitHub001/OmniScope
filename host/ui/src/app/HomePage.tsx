@@ -25,7 +25,7 @@ type Robot = {
   feature?: string;
 };
 
-const HOME_TOOLS = FEATURE_MODULES.filter((m) => m.id !== "watch" && m.id !== "calibrate");
+const HOME_TOOLS = FEATURE_MODULES.filter((m) => m.id !== "watch");
 
 function LogoIcon() {
   return (
@@ -277,16 +277,6 @@ export function InstancePage() {
     window.close();
     window.location.href = "/";
   };
-
-  useEffect(() => {
-    if (feature === "calibrate" && iid) {
-      window.location.replace(`/calibrate.html?i=${iid}`);
-    }
-  }, [feature, iid]);
-
-  if (feature === "calibrate") {
-    return <p className="page-pad muted">正在打开标定页…</p>;
-  }
 
   return (
     <div className="app-shell">
