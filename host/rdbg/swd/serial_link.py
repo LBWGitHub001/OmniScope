@@ -38,11 +38,17 @@ class SerialLink:
             return {"open": open_, "port": self.port, "baud": self.baud}
 
     def list_ports(self) -> List[dict]:
+        ports = []
         try:
             from serial.tools import list_ports
-            return [{"device": item.device, "description": item.description or ""} for item in list_ports.comports()]
-        except ImportError:
-            return []
+            ports = [{"device": item.device, "description": item.description or ""} for item in list_ports.comports()]
+        except Exception:
+            pass
+        if not ports:
+            import glob
+            for p in sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")):
+                ports.append({"device": p, "description": "USB/ACM Serial Device"})
+        return ports
 
     def open(self, port: str, baud: int) -> dict:
         import serial

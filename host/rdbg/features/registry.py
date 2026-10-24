@@ -9,6 +9,7 @@ from .calibrate import CalibrateFeature
 from .dump import DumpFeature
 from .netcheck import NetcheckFeature
 from .replay import ReplayFeature
+from .serial import SerialFeature
 from .swd import SwdFeature
 from .watch import WatchFeature
 
@@ -19,6 +20,7 @@ KINDS = {
     "dump": DumpFeature,
     "netcheck": NetcheckFeature,
     "swd": SwdFeature,
+    "serial": SerialFeature,
 }
 
 
