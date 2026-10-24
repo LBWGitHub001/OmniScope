@@ -9,7 +9,6 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # 组件选项
-option(OMNISCOPE_BUILD_CORE   "Build OmniScope Core library"   ON)
 option(OMNISCOPE_BUILD_MCU    "Build OmniScope MCU C library"  ON)
 option(OMNISCOPE_BUILD_LOGGER "Build OmniScope Logger library" ON)
 option(OMNISCOPE_BUILD_RMBAG  "Build OmniScope RMBag library"  ON)
@@ -17,12 +16,7 @@ option(OMNISCOPE_BUILD_CALIBRATION "Build OmniScope Calibration tools" ON)
 
 set(OMNISCOPE_EXPORTED_TARGETS "")
 
-# 1. 核心与单片机接口模块
-if(OMNISCOPE_BUILD_CORE)
-    add_subdirectory(core)
-    list(APPEND OMNISCOPE_EXPORTED_TARGETS omniscope_core)
-endif()
-
+# 1. 单片机接口模块
 if(OMNISCOPE_BUILD_MCU)
     add_subdirectory(mcu)
     list(APPEND OMNISCOPE_EXPORTED_TARGETS omniscope_mcu)

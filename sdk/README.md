@@ -13,12 +13,6 @@ sdk/
 ├── CMakeLists.txt                      # 顶层 CMake：统一版本管理、模块发现与安装导出 (Modern CMake Package)
 ├── README.md                           # 本文档
 │
-├── core/                               # 【核心通用模块】(OmniScope::Core)
-│   ├── CMakeLists.txt
-│   └── include/omniscope/
-│       ├── common/yaml.hpp             # 统一 YAML 辅助工具
-│       └── version.hpp                 # SDK 版本常数与宏 (1.0.0)
-│
 ├── mcu/                                # 【单片机纯 C 库】(OmniScope::MCU)
 │   ├── CMakeLists.txt
 │   ├── README.md                       # 单片机移植详细文档

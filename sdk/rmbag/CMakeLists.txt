@@ -26,7 +26,6 @@ target_include_directories(omniscope_rmbag
 )
 
 target_link_libraries(omniscope_rmbag PUBLIC
-    omniscope_core
     Threads::Threads
 )
 

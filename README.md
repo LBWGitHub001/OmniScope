@@ -13,7 +13,6 @@ OmniScope/
 ├── sdk/                        # 【下位机部分】附属在嵌入式/机器人代码中的 C++ & MCU SDK
 │   ├── CMakeLists.txt          # 统一 CMake 导出 (OmniScope::All, Logger, RMBag, MCU)
 │   ├── README.md               # 下位机快速上手与模块指南
-│   ├── core/                   # 核心基础定义与通用工具 (OmniScope::Core)
 │   ├── mcu/                    # 单片机 SWD 参数在线热整定与原子快照纯 C 头文件 (OmniScope::MCU)
 │   ├── logger/                 # 远程遥测与日志核心 (OmniScope::Logger)
 │   │   ├── include/            # 对外暴露公共头文件 (<omniscope/remote_logger.hpp>)

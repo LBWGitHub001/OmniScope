@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(omniscope_calibration CXX)
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d highgui)
+find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(fmt REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -20,9 +21,9 @@ target_include_directories(omniscope_calibrator PUBLIC
 target_compile_features(omniscope_calibrator PUBLIC cxx_std_17)
 
 target_link_libraries(omniscope_calibrator PUBLIC
-    OmniScope::Core
     OmniScope::Logger
     ${OpenCV_LIBS}
+    Eigen3::Eigen
     yaml-cpp
     fmt::fmt
     nlohmann_json::nlohmann_json
@@ -33,6 +34,5 @@ add_executable(omniscope_calibrate src/calibrate_node.cpp)
 target_link_libraries(omniscope_calibrate PRIVATE
     omniscope_calibrator
     OmniScope::Logger
-    OmniScope::Core
     ${OpenCV_LIBS}
 )

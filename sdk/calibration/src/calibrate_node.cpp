@@ -1,4 +1,6 @@
+#include <atomic>
 #include <chrono>
+#include <csignal>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -10,13 +12,14 @@
 
 #include "omniscope/calibration/calibrator.hpp"
 #include "omniscope/calibration/test_feed.hpp"
-#include "omniscope/core/exiter.hpp"
 #include "omniscope/remote_logger.hpp"
 
 using namespace std::chrono_literals;
 
 namespace
 {
+static std::atomic<bool> g_exit{false};
+static void sig_handler(int) { g_exit = true; }
 constexpr auto kAutoAddGap = std::chrono::milliseconds(250);
 constexpr auto kUiGap = std::chrono::milliseconds(66);  // ~15fps
 constexpr int kPreviewW = 480;
@@ -154,7 +157,8 @@ int main(int argc, char * argv[])
     }
   }
 
-  tools::Exiter exiter;
+  std::signal(SIGINT, sig_handler);
+  std::signal(SIGTERM, sig_handler);
   cv::Mat raw;
   std::vector<cv::Point2f> corners;
   calibration::SampleParams params;
@@ -237,7 +241,7 @@ int main(int argc, char * argv[])
     }
   };
 
-  while (!exiter.exit() && !quit_cmd) {
+  while (!g_exit && !quit_cmd) {
     // Consume commands from OmniScope Web UI
     nlohmann::json remote;
     while (omniscope::RemoteLogger::instance().poll_json(remote)) {

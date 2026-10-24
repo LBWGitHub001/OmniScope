@@ -31,7 +31,6 @@ target_include_directories(omniscope_logger
 )
 
 target_link_libraries(omniscope_logger PUBLIC
-    omniscope_core
     Threads::Threads
     ${OpenCV_LIBS}
 )

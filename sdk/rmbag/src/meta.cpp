@@ -9,7 +9,7 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-#include "omniscope/common/yaml.hpp"
+#include <yaml-cpp/yaml.h>
 
 namespace omniscope
 {
@@ -51,7 +51,7 @@ uint64_t wall_ns()
 nlohmann::json collect_session_header(
   const std::string & config_path, int argc, char ** argv, const std::string & device_name)
 {
-  const std::string resolved = common::project_path(config_path);
+  const std::string resolved = config_path;
   nlohmann::json j;
   j["version"] = 1;
   j["format"] = "RMB1";
@@ -81,7 +81,7 @@ nlohmann::json collect_session_header(
   j["git"]["dirty"] = (dirty == "1");
 
   try {
-    auto yaml = common::load(config_path);
+    auto yaml = YAML::LoadFile(config_path);
     if (yaml["camera_name"]) j["camera"]["name"] = yaml["camera_name"].as<std::string>();
     if (yaml["exposure_ms"]) j["camera"]["exposure_ms"] = yaml["exposure_ms"].as<double>();
     if (yaml["gain"]) j["camera"]["gain"] = yaml["gain"].as<double>();
@@ -97,7 +97,7 @@ nlohmann::json collect_session_header(
   std::string name = device_name;
   if (name.empty()) {
     try {
-      auto yaml = common::load(config_path);
+      auto yaml = YAML::LoadFile(config_path);
       if (yaml["device_name"]) name = yaml["device_name"].as<std::string>();
     } catch (...) {
     }

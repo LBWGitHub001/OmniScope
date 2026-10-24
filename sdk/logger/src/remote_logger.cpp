@@ -1,6 +1,8 @@
 #include "omniscope/remote_logger.hpp"
 #include "internal/engine.hpp"
-#include "omniscope/common/yaml.hpp"
+#if __has_include(<yaml-cpp/yaml.h>)
+#include <yaml-cpp/yaml.h>
+#endif
 
 namespace omniscope
 {
@@ -23,7 +25,8 @@ void RemoteLogger::init(const Config & cfg) { impl_->init(cfg); }
 
 void RemoteLogger::init(const std::string & config_path)
 {
-  auto yaml = common::load(config_path);
+#if __has_include(<yaml-cpp/yaml.h>)
+  YAML::Node yaml = YAML::LoadFile(config_path);
   auto node = yaml["remote_logger"];
   if (!node) {
     log("ERROR", "[YAML] remote_logger not found!");
@@ -31,16 +34,16 @@ void RemoteLogger::init(const std::string & config_path)
   }
 
   Config cfg;
-  cfg.control_port = common::read<uint16_t>(node, "control_port");
-  cfg.enable_remote = common::read<bool>(node, "enable_remote");
-  cfg.enable_local = common::read<bool>(node, "enable_local");
-  cfg.log_dir = common::read<std::string>(node, "log_dir");
-  cfg.var_buffer_size = common::read<size_t>(node, "var_buffer_size");
-  cfg.img_buffer_size = common::read<size_t>(node, "img_buffer_size");
-  cfg.img_width = common::read<int>(node, "img_width");
-  cfg.img_quality = common::read<int>(node, "img_quality");
-  cfg.heartbeat_interval_ms = common::read<uint32_t>(node, "heartbeat_interval_ms");
-  cfg.sender_name = common::read<std::string>(node, "sender_name");
+  if (node["control_port"]) cfg.control_port = node["control_port"].as<uint16_t>();
+  if (node["enable_remote"]) cfg.enable_remote = node["enable_remote"].as<bool>();
+  if (node["enable_local"]) cfg.enable_local = node["enable_local"].as<bool>();
+  if (node["log_dir"]) cfg.log_dir = node["log_dir"].as<std::string>();
+  if (node["var_buffer_size"]) cfg.var_buffer_size = node["var_buffer_size"].as<size_t>();
+  if (node["img_buffer_size"]) cfg.img_buffer_size = node["img_buffer_size"].as<size_t>();
+  if (node["img_width"]) cfg.img_width = node["img_width"].as<int>();
+  if (node["img_quality"]) cfg.img_quality = node["img_quality"].as<int>();
+  if (node["heartbeat_interval_ms"]) cfg.heartbeat_interval_ms = node["heartbeat_interval_ms"].as<uint32_t>();
+  if (node["sender_name"]) cfg.sender_name = node["sender_name"].as<std::string>();
   if (node["app"]) cfg.app = node["app"].as<std::string>();
   if (node["beacon_interval_ms"])
     cfg.beacon_interval_ms = node["beacon_interval_ms"].as<uint32_t>();
@@ -50,6 +53,10 @@ void RemoteLogger::init(const std::string & config_path)
     cfg.beacon_port = node["beacon_port"].as<uint16_t>();
 
   init(cfg);
+#else
+  (void)config_path;
+  log("ERROR", "[YAML] yaml-cpp not available to load config_path");
+#endif
 }
 
 void RemoteLogger::plot(const nlohmann::json & data) { impl_->plot(data); }

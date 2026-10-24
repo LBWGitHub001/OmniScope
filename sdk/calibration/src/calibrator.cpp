@@ -12,7 +12,6 @@
 #include <opencv2/core/eigen.hpp>
 #include <sstream>
 
-#include "tools/math_tools.hpp"
 
 namespace calibration
 {
@@ -412,7 +411,10 @@ bool Calibrator::calibrate_handeye()
 
   handeye_.R_camera2gimbal = R_camera2gimbal;
   handeye_.t_camera2gimbal = t_camera2gimbal;
-  handeye_.ypr_deg = tools::eulers(R_camera2ideal, 1, 0, 2) * 57.3;
+  {
+    Eigen::Vector3d ea = R_camera2ideal.eulerAngles(1, 0, 2);
+    handeye_.ypr_deg = ea * (180.0 / M_PI);
+  }
   calibrated_at_ = now_local_string();
   return true;
 }
