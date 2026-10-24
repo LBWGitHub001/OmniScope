@@ -130,6 +130,143 @@ struct Marker
     if (j.contains("text") && j["text"].is_string()) m.text = j["text"];
     return m;
   }
+
+  // Chaining helpers for ergonomic configuration
+  Marker & set_ns(std::string new_ns) { ns = std::move(new_ns); return *this; }
+  Marker & set_id(int32_t new_id) { id = new_id; return *this; }
+  Marker & set_frame(std::string frame) { frame_id = std::move(frame); return *this; }
+  Marker & set_lifetime(float sec) { lifetime = sec; return *this; }
+
+  // Fluent Static Builders for Modern C++ Usage
+  static Marker make_arrow(
+    const Vector3 & start, const Vector3 & end,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f},
+    float shaft_dia = 0.05f, float head_dia = 0.1f)
+  {
+    Marker m;
+    m.type = MarkerType::ARROW;
+    m.color = col;
+    m.scale = {shaft_dia, head_dia, 0.0f};
+    m.points = {start, end};
+    return m;
+  }
+
+  static Marker make_cube(
+    const Vector3 & center, const Vector3 & size = {0.2f, 0.2f, 0.2f},
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f})
+  {
+    Marker m;
+    m.type = MarkerType::CUBE;
+    m.pose.position = center;
+    m.scale = size;
+    m.color = col;
+    return m;
+  }
+
+  static Marker make_sphere(
+    const Vector3 & center, float radius = 0.1f,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f})
+  {
+    Marker m;
+    m.type = MarkerType::SPHERE;
+    m.pose.position = center;
+    m.scale = {radius * 2.0f, radius * 2.0f, radius * 2.0f};
+    m.color = col;
+    return m;
+  }
+
+  static Marker make_cylinder(
+    const Vector3 & center, float radius = 0.1f, float height = 0.4f,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f})
+  {
+    Marker m;
+    m.type = MarkerType::CYLINDER;
+    m.pose.position = center;
+    m.scale = {radius * 2.0f, radius * 2.0f, height};
+    m.color = col;
+    return m;
+  }
+
+  static Marker make_line_strip(
+    const std::vector<Vector3> & pts,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f},
+    float width = 0.03f)
+  {
+    Marker m;
+    m.type = MarkerType::LINE_STRIP;
+    m.scale = {width, 0.0f, 0.0f};
+    m.color = col;
+    m.points = pts;
+    return m;
+  }
+
+  static Marker make_line_list(
+    const std::vector<Vector3> & pairs,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f},
+    float width = 0.03f)
+  {
+    Marker m;
+    m.type = MarkerType::LINE_LIST;
+    m.scale = {width, 0.0f, 0.0f};
+    m.color = col;
+    m.points = pairs;
+    return m;
+  }
+
+  static Marker make_points(
+    const std::vector<Vector3> & pts,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f},
+    float size = 0.05f)
+  {
+    Marker m;
+    m.type = MarkerType::POINTS;
+    m.scale = {size, size, size};
+    m.color = col;
+    m.points = pts;
+    return m;
+  }
+
+  static Marker make_text(
+    const Vector3 & pos, const std::string & str,
+    const ColorRGBA & col = {1.0f, 1.0f, 1.0f, 1.0f},
+    float size = 0.2f)
+  {
+    Marker m;
+    m.type = MarkerType::TEXT_VIEW_FACING;
+    m.pose.position = pos;
+    m.scale = {size, size, size};
+    m.color = col;
+    m.text = str;
+    return m;
+  }
+
+  static Marker make_triangle_list(
+    const std::vector<Vector3> & vertices,
+    const ColorRGBA & col = {0.0f, 0.94f, 1.0f, 1.0f})
+  {
+    Marker m;
+    m.type = MarkerType::TRIANGLE_LIST;
+    m.scale = {1.0f, 1.0f, 1.0f};
+    m.color = col;
+    m.points = vertices;
+    return m;
+  }
+
+  static Marker make_delete(const std::string & del_ns, int32_t del_id)
+  {
+    Marker m;
+    m.ns = del_ns;
+    m.id = del_id;
+    m.action = MarkerAction::DELETE;
+    return m;
+  }
+
+  static Marker make_delete_all()
+  {
+    Marker m;
+    m.action = MarkerAction::DELETEALL;
+    return m;
+  }
 };
 
 }  // namespace omniscope

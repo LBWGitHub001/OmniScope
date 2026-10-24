@@ -11,15 +11,10 @@
 ```
 OmniScope/
 ├── sdk/                        # 【下位机部分】附属在嵌入式/机器人代码中的 C++ & MCU SDK
-│   ├── CMakeLists.txt          # 统一 CMake 导出 (OmniScope::All, Logger, RMBag, MCU)
-│   ├── README.md               # 下位机快速上手与模块指南
-│   ├── mcu/                    # 单片机 SWD 参数在线热整定与原子快照纯 C 头文件 (OmniScope::MCU)
-│   ├── logger/                 # 远程遥测与日志核心 (OmniScope::Logger)
-│   │   ├── include/            # 对外暴露公共头文件 (<omniscope/remote_logger.hpp>)
-│   │   └── src/                # UDP 发送、分片图像压缩、异步 .rlog 落盘 (私有 internal/)
-│   └── rmbag/                  # 满帧率无损视觉/云台姿态数据集录放库 (OmniScope::RMBag)
-│       ├── include/            # 对外暴露公共头文件 (<omniscope/rmbag/*.hpp>)
-│       └── src/                # 异步写入器与假设备回放源
+│   ├── CMakeLists.txt          # 统一现代组件化 CMake 导出 (OmniScope::All / Logger / MCU / RMBag / Calibrator)
+│   ├── README.md               # 下位机快速上手与现代化 API 使用指南
+│   ├── include/omniscope/      # 统一暴露的现代化公共头文件 (<omniscope/omniscope.hpp>, marker.hpp, etc.)
+│   └── src/                    # 模块化源码实现 (logger/, mcu/, rmbag/, calibration/)
 │
 ├── host/                       # 【上位机部分】统一集成调试门户 (Python + React)
 │   ├── start.sh                # 门户启动入口

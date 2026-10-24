@@ -1,4 +1,4 @@
-#include "calibrator.hpp"
+#include "omniscope/calibration/calibrator.hpp"
 
 #include <fmt/core.h>
 #include <yaml-cpp/yaml.h>

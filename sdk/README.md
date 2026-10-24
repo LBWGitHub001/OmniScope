@@ -1,45 +1,47 @@
-# OmniScope C++ & Embedded SDK
+# OmniScope Modern C++ & Embedded SDK
 
-OmniScope 下位机 SDK 面向机器人车载工控机（Linux / ROS / Jetson）、嵌入式微控制器（STM32 / Cortex-M 系列）及控制算法工程，提供标准化、高内聚的组件库与公共头文件体系。
+OmniScope 下位机 SDK 面向机器人车载工控机（Linux / ROS / Jetson）、嵌入式微控制器（STM32 / Cortex-M 系列）及控制算法工程，提供标准化、高内聚的组件库与现代化公共头文件体系。
 
 ---
 
-## 1. 架构与模块分类
+## 1. 架构与目录组织
 
-SDK 内部严格遵循现代 C++ 规范，将**公共暴露接口（Public Headers）**与**内部私有实现（Private Sources / Internal Headers）**隔离，所有组件归属在 `omniscope::` 命名空间下：
+SDK 统一收敛公共暴露接口（Public Headers）与内部私有实现（Private Sources），所有头文件统一位于 `include/omniscope/`，所有实现源码位于 `src/`：
 
 ```
 sdk/
-├── CMakeLists.txt                      # 顶层 CMake：统一版本管理、模块发现与安装导出 (Modern CMake Package)
-├── README.md                           # 本文档
+├── CMakeLists.txt                         # 统一现代 CMake：组件化配置与安装导出 (Modern CMake Package)
+├── README.md                              # 本文档
 │
-├── mcu/                                # 【单片机纯 C 库】(OmniScope::MCU)
-│   ├── CMakeLists.txt
-│   ├── README.md                       # 单片机移植详细文档
-│   ├── include/omniscope/mcu/
-│   │   └── mailbox.h                   # SWD 在线热整定、微秒级示波器环形缓冲、SeqLock 快照
-│   └── src/
-│       └── mailbox.c                   # 纯 C99 实现源码
+├── include/                               # 【统一公共头文件根目录】
+│   └── omniscope/
+│       ├── omniscope.hpp                  # 【统揽头文件】现代极简 API、便捷函数与流畅 Marker 构造
+│       ├── logger.hpp                     # 遥测核心客户端（RemoteLogger 类定义）
+│       ├── remote_logger.hpp              # 兼容性头文件别名
+│       ├── marker.hpp                     # ROS 2 兼容 3D Marker 定义 + Fluent Static Builders
+│       ├── mcu/
+│       │   └── mailbox.h                  # 单片机 SWD 纯 C99 内存邮箱与热整定快照
+│       ├── rmbag/                         # 满帧率视觉姿态数据集录放库公共头文件
+│       │   ├── proto.hpp                  # RMB1 数据格式协议 (纳秒对齐、四元数、欧拉角)
+│       │   ├── meta.hpp                   # 录制元信息与统计采集
+│       │   ├── reader.hpp                 # 数据集读取器
+│       │   ├── writer.hpp                 # 高吞吐无损写盘器
+│       │   └── playback.hpp               # 硬件在环回放器
+│       └── calibration/                   # 相机与手眼标定公共头文件
+│           ├── calibrator.hpp             # 棋盘格四维覆盖度标定算法
+│           └── test_feed.hpp              # 虚拟棋盘格仿真数据源
 │
-├── logger/                             # 【遥测与远程日志库】(OmniScope::Logger)
-│   ├── CMakeLists.txt
-│   ├── include/omniscope/
-│   │   ├── remote_logger.hpp           # 核心遥测接口类 omniscope::RemoteLogger
-│   │   └── logger.hpp                  # 便捷类型别名
-│   └── src/
-│       ├── internal/*.hpp              # 内部协议、UDP传输、JPEG压缩与落盘私有头文件
-│       └── *.cpp                       # 遥测实现源码
-│
-└── rmbag/                              # 【视觉与姿态数据集录放库】(OmniScope::RMBag)
-    ├── CMakeLists.txt
-    ├── README.md                       # RMB1 数据格式与录放详解
-    ├── include/omniscope/rmbag/
-    │   ├── proto.hpp                   # RMB1 数据格式协议 (纳秒对齐、四元数、欧拉角)
-    │   ├── meta.hpp                    # 录制元信息与统计采集
-    │   ├── reader.hpp                  # 数据集读取器
-    │   ├── writer.hpp                  # 高吞吐无损写盘器
-    │   └── playback.hpp                # 硬件在环回放器
-    └── src/*.cpp                       # 数据集录放实现源码
+└── src/                                   # 【统一源码实现根目录】
+    ├── logger/                            # 遥测实现 (UDP 传输、协议引擎、图像压缩、异步落盘)
+    │   ├── internal/*.hpp
+    │   └── *.cpp
+    ├── mcu/                               # MCU 纯 C 实现 (零 CPU 暂停 SWD 通讯)
+    │   └── mailbox.c
+    ├── rmbag/                             # RMBag 数据集读写源码
+    │   └── *.cpp
+    └── calibration/                       # 标定算法与独立可执行标定节点
+        ├── calibrator.cpp
+        └── calibrate_node.cpp
 ```
 
 ---
@@ -54,11 +56,14 @@ sdk/
 # 引入 SDK 子目录
 add_subdirectory(path/to/OmniScope/sdk)
 
-# 一键链接全部组件
+# 一键链接全部组件（统一接口）
 target_link_libraries(your_robot_target PRIVATE OmniScope::All)
 
-# 或者只针对单片机工程链接纯 C 库
-target_link_libraries(your_mcu_target PRIVATE OmniScope::MCU)
+# 或者按需链接具体模块
+target_link_libraries(your_robot_target PRIVATE OmniScope::Logger)
+target_link_libraries(your_mcu_target   PRIVATE OmniScope::MCU)
+target_link_libraries(your_vision_target PRIVATE OmniScope::RMBag)
+target_link_libraries(your_calib_target  PRIVATE OmniScope::Calibrator)
 ```
 
 ### 方式 B：现代包导入方式 (`find_package`)
@@ -75,47 +80,56 @@ target_link_libraries(your_target PRIVATE OmniScope::All)
 
 ---
 
-## 3. C++ 车端调用示例
+## 3. C++ 现代调用示例
 
-### 遥测与远程日志 (`OmniScope::Logger`)
+### 极简统揽头文件 (`<omniscope/omniscope.hpp>`)
 
-```cpp
-#include <omniscope/remote_logger.hpp>
-
-// 1. 初始化遥测引擎
-omniscope::RemoteLogger::instance().init(config_or_yaml_path);
-
-// 2. 实时打印多通道变量曲线 (Host 门户实时波形呈现)
-omniscope::RemoteLogger::instance().plot({
-    {"yaw", current_yaw},
-    {"pitch", current_pitch},
-    {"speed", current_speed}
-});
-
-// 3. 打印等级日志 (支持 fmt 格式化)
-omniscope::RemoteLogger::instance().log("INFO", "Robot initialized successfully: id={}", robot_id);
-
-// 4. 实时图像回传与本地异步落盘
-omniscope::RemoteLogger::instance().plot_image(mat_bgr, {{"name", "raw"}});
-```
-
-### 满帧率视觉姿态录制 (`OmniScope::RMBag`)
+推荐直接包含统揽头文件，即可享受极简顶层 API：
 
 ```cpp
-#include <omniscope/rmbag/writer.hpp>
+#include <omniscope/omniscope.hpp>
 
-omniscope::rmbag::Writer writer;
-writer.open("records/session.rmbag");
-writer.write_header(header_json);
+int main() {
+    // 1. 初始化遥测引擎
+    omniscope::RemoteLogger::Config cfg;
+    cfg.sender_name = "sentry_robot";
+    omniscope::init(cfg);
 
-omniscope::rmbag::Frame frame;
-frame.hdr.ts_ns = get_now_ns();
-frame.hdr.q_w = q.w(); frame.hdr.q_x = q.x(); frame.hdr.q_y = q.y(); frame.hdr.q_z = q.z();
-frame.hdr.width = 1280; frame.hdr.height = 1024; frame.hdr.step = 1280 * 3;
-frame.hdr.data_len = frame.hdr.step * frame.hdr.height;
-frame.pixels = std::move(raw_bgr8_bytes);
+    // 2. 实时高频上报多通道波形（极简一行）
+    omniscope::plot({
+        {"yaw", 12.5},
+        {"pitch", -3.2},
+        {"speed", 28.0}
+    });
 
-writer.write_frame(frame);
+    // 3. 结构化日志打印（原生支持 fmt 占位符）
+    omniscope::info("Armor detected at distance: {:.2f}m", 3.45);
+    omniscope::warn("Approaching gimbal limit: angle={:.1f}deg", 48.5);
+
+    // 4. 发送 3D 可视化标记（使用便捷工厂构建器）
+    omniscope::plot_marker(
+        omniscope::Marker::make_arrow({0, 0, 0}, {2.0f, 0.5f, 0.0f})
+            .set_ns("trajectory")
+            .set_id(1)
+            .set_lifetime(0.5f)
+    );
+
+    omniscope::plot_marker(
+        omniscope::Marker::make_cube({2.0f, 0.5f, 0.0f}, {0.3f, 0.3f, 0.3f})
+            .set_ns("target_box")
+    );
+
+    omniscope::plot_marker(
+        omniscope::Marker::make_text({2.0f, 0.5f, 0.4f}, "Target #1")
+    );
+
+    // 5. 实时图像回传（自动限频与 JPEG 压缩）
+    cv::Mat frame = ...;
+    omniscope::plot_image(frame, {{"name", "sentry_main_camera"}});
+
+    omniscope::shutdown();
+    return 0;
+}
 ```
 
 ---
@@ -135,7 +149,7 @@ void main(void) {
     omniscope_trace_init(&g_trace_buffer);
 
     while (1) {
-        // 主循环中检查上位机是否有新参数下发 (SWD 在线调参)
+        // 主循环中检查上位机是否有新参数下发 (SWD 在线调参，零 CPU 暂停)
         if (omniscope_mailbox_has_update(&g_tuning_mailbox)) {
             pid_kp = omniscope_mailbox_get_param(&g_tuning_mailbox, 0, 1.0f);
             pid_ki = omniscope_mailbox_get_param(&g_tuning_mailbox, 1, 0.0f);
@@ -150,4 +164,25 @@ void Control_ISR(void) {
     float channels[OMNISCOPE_TRACE_CHANNELS] = {target_val, current_val, pid_out, current_iq};
     omniscope_trace_record(&g_trace_buffer, get_micros(), channels);
 }
+```
+
+---
+
+## 5. 满帧率视觉姿态录制 (`OmniScope::RMBag`)
+
+```cpp
+#include <omniscope/rmbag/writer.hpp>
+
+omniscope::rmbag::Writer writer;
+writer.open("records/session.rmbag");
+writer.write_header(header_json);
+
+omniscope::rmbag::Frame frame;
+frame.hdr.ts_ns = get_now_ns();
+frame.hdr.q_w = q.w(); frame.hdr.q_x = q.x(); frame.hdr.q_y = q.y(); frame.hdr.q_z = q.z();
+frame.hdr.width = 1280; frame.hdr.height = 1024; frame.hdr.step = 1280 * 3;
+frame.hdr.data_len = frame.hdr.step * frame.hdr.height;
+frame.pixels = std::move(raw_bgr8_bytes);
+
+writer.write_frame(frame);
 ```
