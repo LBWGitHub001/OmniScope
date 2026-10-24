@@ -10,6 +10,8 @@
 #include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
 
+#include "omniscope/marker.hpp"
+
 namespace omniscope
 {
 
@@ -54,6 +56,10 @@ public:
   }
 
   void plot_image(const cv::Mat & img, const nlohmann::json & meta);
+  /// 发送 3D 可视化标记 (ROS 2 visualization_msgs/msg/Marker)
+  void plot_marker(const Marker & marker);
+  /// 批量发送 3D 可视化标记
+  void plot_markers(const std::vector<Marker> & markers);
   /// host 网页下发的标定指令
   bool poll_calib_cmd(std::string & cmd);
   /// host 下发的通用 JSON 控制命令

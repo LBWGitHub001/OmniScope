@@ -64,6 +64,24 @@ void RemoteLogger::plot_image(const cv::Mat & img, const nlohmann::json & meta)
   impl_->plot_image(img, meta);
 }
 
+void RemoteLogger::plot_marker(const Marker & marker)
+{
+  nlohmann::json j;
+  j["marker"] = marker.to_json();
+  plot(j);
+}
+
+void RemoteLogger::plot_markers(const std::vector<Marker> & markers)
+{
+  nlohmann::json arr = nlohmann::json::array();
+  for (const auto & m : markers) {
+    arr.push_back(m.to_json());
+  }
+  nlohmann::json j;
+  j["markers"] = arr;
+  plot(j);
+}
+
 bool RemoteLogger::poll_calib_cmd(std::string & cmd) { return impl_->poll_calib_cmd(cmd); }
 
 bool RemoteLogger::poll_json(nlohmann::json & data) { return impl_->poll_json(data); }
