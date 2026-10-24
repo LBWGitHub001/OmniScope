@@ -40,3 +40,6 @@ Thumbs.db
 # Test directories (all testing is in C++ under sdk/tools)
 tests/
 test/
+
+# Privacy / Copyright documents
+软著申请/
