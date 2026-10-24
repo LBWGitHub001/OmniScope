@@ -7,7 +7,7 @@ from pathlib import Path
 from .rlog import iter_records
 
 MAX_BYTES = 1 << 30  # 1 GiB
-SKIP_KEYS = frozenset({"_from", "ts", "hb"})
+SKIP_KEYS = frozenset({"_from", "ts", "hb", "marker", "markers"})
 
 
 def _is_number(v):
@@ -21,6 +21,7 @@ def load_session(path, max_bytes=MAX_BYTES):
 
     frames = []
     logs = []
+    markers = []
     series = defaultdict(list)
     t0 = None
     mem = 0
@@ -57,6 +58,12 @@ def load_session(path, max_bytes=MAX_BYTES):
                     "msg": obj["msg"],
                 })
                 continue
+            if "marker" in obj and isinstance(obj["marker"], dict):
+                markers.append({"t": t_sec, "ts": ts, "marker": obj["marker"]})
+            elif "markers" in obj and isinstance(obj["markers"], list):
+                for m in obj["markers"]:
+                    if isinstance(m, dict):
+                        markers.append({"t": t_sec, "ts": ts, "marker": m})
             if not sender:
                 frm = obj.get("_from")
                 if isinstance(frm, str) and frm:
@@ -95,6 +102,7 @@ def load_session(path, max_bytes=MAX_BYTES):
         "memory_bytes": mem,
         "frames": frames,
         "logs": logs,
+        "markers": markers,
         "series": {k: series[k] for k in fields},
         "fields": fields,
     }

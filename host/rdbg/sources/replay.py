@@ -22,6 +22,7 @@ def public_meta(session):
         "series": session.get("series") or {},
         "frames": frames,
         "logs": session.get("logs") or [],
+        "markers": session.get("markers") or [],
     }
 
 

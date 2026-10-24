@@ -383,4 +383,19 @@ class UdpBackend:
                 out["_from"] = frm
             self._emit(out)
         else:
-            self._emit({"type": "plot", "ts": ts, "data": j})
+            has_marker = False
+            if "marker" in j and isinstance(j["marker"], dict):
+                has_marker = True
+                out = {"type": "marker", "ts": ts, "marker": j["marker"]}
+                if frm:
+                    out["_from"] = frm
+                self._emit(out)
+            if "markers" in j and isinstance(j["markers"], list):
+                has_marker = True
+                out = {"type": "markers", "ts": ts, "markers": j["markers"]}
+                if frm:
+                    out["_from"] = frm
+                self._emit(out)
+            has_plot = any(k not in ("marker", "markers", "ts", "_from", "hb") for k in j.keys())
+            if has_plot or not has_marker:
+                self._emit({"type": "plot", "ts": ts, "data": j})
