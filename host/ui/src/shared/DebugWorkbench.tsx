@@ -107,39 +107,6 @@ export function DebugWorkbench({
     setLayoutMode("grid");
     setPrevPanels(null);
   }, []);
-
-  const apply3DFocus = useCallback(() => {
-    setPanels([{ kind: "3d", imgSel: "" }]);
-    setLayoutMode("horizontal");
-  }, []);
-
-  const applyPlotFocus = useCallback(() => {
-    setPanels([{ kind: "plot", imgSel: "" }]);
-    setLayoutMode("horizontal");
-  }, []);
-
-  const applyDualPlot3D = useCallback(() => {
-    setPanels([
-      { kind: "plot", imgSel: "" },
-      { kind: "3d", imgSel: "" },
-    ]);
-    setLayoutMode("horizontal");
-  }, []);
-
-  const toggleKind = useCallback((kind: PanelKind) => {
-    setPanels((prev) => {
-      const exists = prev.some((p) => p.kind === kind);
-      if (exists) {
-        if (prev.length === 1) return prev;
-        const next = prev.filter((p) => p.kind !== kind);
-        return next;
-      } else {
-        const next = [...prev, { kind, imgSel: "" }];
-        if (next.length === 4) setLayoutMode("grid");
-        return next;
-      }
-    });
-  }, []);
   const [sidebar, setSidebar] = useState(true);
   const [mode, setMode] = useState<ViewMode>("sliding");
   const [win, setWin] = useState(10);
@@ -163,7 +130,6 @@ export function DebugWorkbench({
   const [formulaDraft, setFormulaDraft] = useState("");
   const [formulaSource, setFormulaSource] = useState("");
   const [markers, setMarkers] = useState<Marker[]>([]);
-  const [activeMarkerCount, setActiveMarkerCount] = useState(0);
   const formulasRef = useRef(formulas);
   formulasRef.current = formulas;
 
@@ -735,77 +701,6 @@ export function DebugWorkbench({
         )}
       </aside>
       <div className="workbench-main">
-        {/* Top Control Bar */}
-        <div className="workbench-bar">
-          <div className="wb-group">
-            <span className="wb-label">布局模式:</span>
-            <button
-              type="button"
-              className={panels.length === 4 && layoutMode === "grid" ? "wb-btn active cyber-glow" : "wb-btn"}
-              onClick={applyGrid4}
-              title="四分屏布局: 曲线 + 3D空间 + 视讯 + 日志"
-            >
-              🎛️ 2×2 四分屏 (含 3D)
-            </button>
-            <button
-              type="button"
-              className={panels.length === 1 && panels[0].kind === "3d" ? "wb-btn active cyber-glow" : "wb-btn"}
-              onClick={apply3DFocus}
-              title="3D 空间全屏沉浸视口"
-            >
-              🧊 3D 空间专注
-            </button>
-            <button
-              type="button"
-              className={panels.length === 2 && panels.some((p) => p.kind === "plot") && panels.some((p) => p.kind === "3d") ? "wb-btn active" : "wb-btn"}
-              onClick={applyDualPlot3D}
-              title="曲线与 3D 双屏视口"
-            >
-              📈 曲线 + 🧊 3D
-            </button>
-            <button
-              type="button"
-              className={panels.length === 1 && panels[0].kind === "plot" ? "wb-btn active" : "wb-btn"}
-              onClick={applyPlotFocus}
-              title="曲线全屏模式"
-            >
-              📈 曲线专注
-            </button>
-          </div>
-
-          <div className="wb-group">
-            <span className="wb-label">视口开关:</span>
-            <button
-              type="button"
-              className={panels.some((p) => p.kind === "plot") ? "wb-btn active" : "wb-btn"}
-              onClick={() => toggleKind("plot")}
-            >
-              📈 曲线
-            </button>
-            <button
-              type="button"
-              className={panels.some((p) => p.kind === "3d") ? "wb-btn active cyber-glow" : "wb-btn"}
-              onClick={() => toggleKind("3d")}
-            >
-              🧊 3D 空间 {activeMarkerCount > 0 ? `(${activeMarkerCount})` : ""}
-            </button>
-            <button
-              type="button"
-              className={panels.some((p) => p.kind === "image") ? "wb-btn active" : "wb-btn"}
-              onClick={() => toggleKind("image")}
-            >
-              📷 图像
-            </button>
-            <button
-              type="button"
-              className={panels.some((p) => p.kind === "log") ? "wb-btn active" : "wb-btn"}
-              onClick={() => toggleKind("log")}
-            >
-              📋 日志
-            </button>
-          </div>
-        </div>
-
         {/* Tiles Container */}
         <div className={`tile-root ${layoutMode === "grid" && panels.length === 4 ? "tile-grid-2x2" : ""}`}>
           {panels.map((panel, i) => {
@@ -951,11 +846,7 @@ export function DebugWorkbench({
                   {k === "3d" && (
                     <Scene3DView
                       markers={markers}
-                      onClear={() => {
-                        setMarkers([]);
-                        setActiveMarkerCount(0);
-                      }}
-                      onActiveCountChange={setActiveMarkerCount}
+                      onClear={() => setMarkers([])}
                     />
                   )}
                 </div>
