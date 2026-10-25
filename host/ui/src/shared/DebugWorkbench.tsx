@@ -140,6 +140,13 @@ export function DebugWorkbench({
   const maxLogBufferRef = useRef(maxLogBuffer);
   maxLogBufferRef.current = maxLogBuffer;
 
+  // Image viewport controls & settings
+  const [imgScale, setImgScale] = useState(1);
+  const [imgPan, setImgPan] = useState({ x: 0, y: 0 });
+  const [showImgCrosshair, setShowImgCrosshair] = useState(true);
+  const [showImgHudInfo, setShowImgHudInfo] = useState(true);
+  const [imgSmooth, setImgSmooth] = useState(true);
+
   const logStats = useMemo(() => {
     let debug = 0;
     let info = 0;
@@ -648,6 +655,19 @@ export function DebugWorkbench({
   const clampedSelectedIdx = Math.min(selectedPaneIdx, Math.max(0, panels.length - 1));
   const activePanel = panels[clampedSelectedIdx] || panels[0];
   const activeKind = activePanel?.kind || "plot";
+  const currentImgSel = activePanel?.imgSel || names[0] || "";
+
+  const handleSetImageStream = (streamName: string) => {
+    setPanels((prev) => {
+      const next = [...prev];
+      if (next[clampedSelectedIdx]) {
+        next[clampedSelectedIdx] = { ...next[clampedSelectedIdx], imgSel: streamName };
+      }
+      return next;
+    });
+    setImgScale(1);
+    setImgPan({ x: 0, y: 0 });
+  };
 
   return (
     <div className="workbench-root">
@@ -1052,17 +1072,163 @@ export function DebugWorkbench({
               </>
             )}
 
-            {/* Undeveloped Image Context */}
+            {/* Image Context Settings */}
             {activeKind === "image" && (
-              <div className="side-sec">
-                <div className="dev-placeholder">
-                  <div className="dev-badge">功能暂未开发</div>
-                  <div className="dev-title">实时图像参数设置</div>
-                  <p className="dev-desc">
-                    图像流通道选路、曝光与增益调节、分辨率与压缩质量切换、标定标尺叠加等功能正在规划中。
-                  </p>
+              <>
+                <div className="side-sec">
+                  <div className="side-h">视频流通道选路</div>
+                  <div style={{ marginTop: 4, marginBottom: 6 }}>
+                    <select
+                      value={currentImgSel}
+                      onChange={(e) => handleSetImageStream(e.target.value)}
+                      style={{ width: "100%", fontSize: 11, height: 26, padding: "0 6px" }}
+                    >
+                      {names.length === 0 && <option value="">暂无可用视频流</option>}
+                      {names.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", justifyContent: "space-between" }}>
+                    <span>已发现流通道</span>
+                    <span className="mono" style={{ color: "var(--cyan)" }}>
+                      {names.length} 个
+                    </span>
+                  </div>
                 </div>
-              </div>
+
+                <div className="side-sec">
+                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>视口缩放与平移</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--cyan)" }}>
+                      {Math.round(imgScale * 100)}%
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ height: 26, fontSize: 11 }}
+                      onClick={() => {
+                        setImgScale(1);
+                        setImgPan({ x: 0, y: 0 });
+                      }}
+                    >
+                      适应窗口 (Fit)
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ height: 26, fontSize: 11 }}
+                      onClick={() => {
+                        setImgScale(1);
+                        setImgPan({ x: 0, y: 0 });
+                      }}
+                    >
+                      1:1 原生比例
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ height: 26, fontSize: 11 }}
+                      onClick={() => setImgScale((s) => Math.min(15, Number((s * 1.25).toFixed(2))))}
+                    >
+                      放大 (+)
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ height: 26, fontSize: 11 }}
+                      onClick={() => setImgScale((s) => Math.max(0.1, Number((s * 0.8).toFixed(2))))}
+                    >
+                      缩小 (-)
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ gridColumn: "span 2", height: 26, fontSize: 11 }}
+                      onClick={() => setImgPan({ x: 0, y: 0 })}
+                    >
+                      居中复位 (平移 0, 0)
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>快速倍率预设</div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {[0.5, 1.0, 1.5, 2.0, 4.0].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className="ghost"
+                          style={{
+                            flex: 1,
+                            height: 22,
+                            fontSize: 10,
+                            padding: 0,
+                            borderColor: Math.abs(imgScale - preset) < 0.05 ? "var(--cyan)" : undefined,
+                            color: Math.abs(imgScale - preset) < 0.05 ? "var(--cyan)" : undefined,
+                          }}
+                          onClick={() => setImgScale(preset)}
+                        >
+                          {Math.round(preset * 100)}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">辅助图层与 HUD</div>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={showImgCrosshair}
+                      onChange={(e) => setShowImgCrosshair(e.target.checked)}
+                    />
+                    显示中心瞄准准星与辅助角框
+                  </label>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={showImgHudInfo}
+                      onChange={(e) => setShowImgHudInfo(e.target.checked)}
+                    />
+                    显示浮动水印与流状态信息
+                  </label>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={imgSmooth}
+                      onChange={(e) => setImgSmooth(e.target.checked)}
+                    />
+                    双线性平滑插值渲染
+                  </label>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">图传流诊断状态</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
+                    <div>
+                      活动流：<b className="mono" style={{ color: "var(--cyan)" }}>{currentImgSel || "未选定"}</b>
+                    </div>
+                    <div>
+                      传输状态：
+                      <span className="mono" style={{ color: images[currentImgSel] ? "var(--green)" : "var(--amber)" }}>
+                        {images[currentImgSel] ? "活跃传输中 (Active)" : "等待首帧数据..."}
+                      </span>
+                    </div>
+                    <div>
+                      视口位姿：
+                      <span className="mono" style={{ color: "var(--text-strong)" }}>
+                        {Math.round(imgScale * 100)}% · ({Math.round(imgPan.x)}, {Math.round(imgPan.y)})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Log Context Settings */}
@@ -1250,29 +1416,31 @@ export function DebugWorkbench({
                       {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : "运行日志"}
                     </span>
                   </div>
-                  <select
-                    value={k}
-                    style={{ marginLeft: 8 }}
-                    onChange={(e) => {
-                      const kind = e.target.value as PanelKind;
-                      setPanels((prev) => {
-                        const n = [...prev];
-                        const cur = n[i];
-                        n[i] = {
-                          ...cur,
-                          kind,
-                          imgSel:
-                            kind === "image" && !cur.imgSel ? names[0] || "" : cur.imgSel,
-                        };
-                        return n;
-                      });
-                    }}
-                  >
-                    <option value="plot">绘图</option>
-                    <option value="3d">3D 视图 (Markers)</option>
-                    <option value="image">图像</option>
-                    <option value="log">日志</option>
-                  </select>
+                  {k !== "image" && k !== "log" && (
+                    <select
+                      value={k}
+                      style={{ marginLeft: 8 }}
+                      onChange={(e) => {
+                        const kind = e.target.value as PanelKind;
+                        setPanels((prev) => {
+                          const n = [...prev];
+                          const cur = n[i];
+                          n[i] = {
+                            ...cur,
+                            kind,
+                            imgSel:
+                              kind === "image" && !cur.imgSel ? names[0] || "" : cur.imgSel,
+                          };
+                          return n;
+                        });
+                      }}
+                    >
+                      <option value="plot">绘图</option>
+                      <option value="3d">3D 视图 (Markers)</option>
+                      <option value="image">图像</option>
+                      <option value="log">日志</option>
+                    </select>
+                  )}
                   <button
                     type="button"
                     className="ghost"
@@ -1378,16 +1546,15 @@ export function DebugWorkbench({
                   )}
                   {k === "image" && (
                     <ImagePane
-                      names={names}
                       sel={imgSel}
                       url={images[imgSel]}
-                      onSel={(n) =>
-                        setPanels((prev) => {
-                          const next = [...prev];
-                          next[i] = { ...next[i], imgSel: n };
-                          return next;
-                        })
-                      }
+                      scale={clampedSelectedIdx === i ? imgScale : 1}
+                      onScaleChange={clampedSelectedIdx === i ? setImgScale : undefined}
+                      pan={clampedSelectedIdx === i ? imgPan : { x: 0, y: 0 }}
+                      onPanChange={clampedSelectedIdx === i ? setImgPan : undefined}
+                      showCrosshair={showImgCrosshair}
+                      showHud={showImgHudInfo}
+                      smooth={imgSmooth}
                     />
                   )}
                   {k === "3d" && (
@@ -1429,7 +1596,9 @@ export function DebugWorkbench({
               </span>
             )}
             {activeKind === "image" && (
-              <span>视频通道: {panels[clampedSelectedIdx]?.imgSel || names[0] || "无信号"} · 图像配置规划中</span>
+              <span>
+                视频流: {currentImgSel || "默认"} · 缩放: {Math.round(imgScale * 100)}% · 准星: {showImgCrosshair ? "开启" : "隐藏"} · 传输: {images[currentImgSel] ? "在线" : "等待数据"}
+              </span>
             )}
             {activeKind === "log" && (
               <span>
@@ -1626,54 +1795,47 @@ function LogPane({
 }
 
 function ImagePane({
-  names,
   sel,
   url,
-  onSel,
+  scale = 1,
+  onScaleChange,
+  pan = { x: 0, y: 0 },
+  onPanChange,
+  showCrosshair = true,
+  showHud = true,
+  smooth = true,
 }: {
-  names: string[];
   sel: string;
   url?: string;
-  onSel: (n: string) => void;
+  scale?: number;
+  onScaleChange?: React.Dispatch<React.SetStateAction<number>>;
+  pan?: { x: number; y: number };
+  onPanChange?: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>;
+  showCrosshair?: boolean;
+  showHud?: boolean;
+  smooth?: boolean;
 }) {
-  const [scale, setScale] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [localScale, setLocalScale] = useState(1);
+  const [localPan, setLocalPan] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
-  useEffect(() => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  }, [sel]);
+  const curScale = scale !== undefined ? scale : localScale;
+  const setScale = onScaleChange || setLocalScale;
+
+  const curPan = pan !== undefined ? pan : localPan;
+  const setPan = onPanChange || setLocalPan;
 
   return (
     <div className="img-pane">
-      <div className="img-bar">
-        <select value={sel} onChange={(e) => onSel(e.target.value)}>
-          {names.length === 0 && <option value="">无图像流</option>}
-          {names.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <div style={{ marginLeft: "auto", display: "flex", gap: "8px", alignItems: "center" }}>
-          <span className="state-tag s-connected" style={{ fontSize: "10px", padding: "1px 6px" }}>
-            VISION HUD
-          </span>
-          <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }}>
-            {scale !== 1 ? `${Math.round(scale * 100)}%` : "1:1"}
-          </span>
-        </div>
-      </div>
       <div
         className="img-view"
         onWheel={(e) => {
           e.preventDefault();
-          setScale((s) => Math.min(15, Math.max(0.1, s * (e.deltaY > 0 ? 0.9 : 1.1))));
+          setScale((s) => Math.min(15, Math.max(0.1, Number((s * (e.deltaY > 0 ? 0.9 : 1.1)).toFixed(2)))));
         }}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
-          drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+          drag.current = { x: e.clientX, y: e.clientY, px: curPan.x, py: curPan.y };
         }}
         onMouseMove={(e) => {
           if (!drag.current) return;
@@ -1695,36 +1857,75 @@ function ImagePane({
               src={url}
               alt=""
               draggable={false}
-              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
+              style={{
+                transform: `translate(${curPan.x}px, ${curPan.y}px) scale(${curScale})`,
+                imageRendering: smooth ? "auto" : "pixelated",
+              }}
             />
             {/* Cyber Vision HUD Overlay */}
-            <div className="hud-crosshair">
-              <span className="hud-corner hud-corner-tl" />
-              <span className="hud-corner hud-corner-tr" />
-              <span className="hud-corner hud-corner-bl" />
-              <span className="hud-corner hud-corner-br" />
-            </div>
-            <div
-              style={{
-                position: "absolute",
-                bottom: "10px",
-                left: "12px",
-                background: "rgba(0,0,0,0.65)",
-                backdropFilter: "blur(8px)",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                fontSize: "10px",
-                fontFamily: "var(--mono)",
-                color: "var(--cyan)",
-                pointerEvents: "none",
-              }}
-            >
-              CAMERA HUD · 60 FPS STREAM
-            </div>
+            {showCrosshair && (
+              <div className="hud-crosshair">
+                <span className="hud-corner hud-corner-tl" />
+                <span className="hud-corner hud-corner-tr" />
+                <span className="hud-corner hud-corner-bl" />
+                <span className="hud-corner hud-corner-br" />
+              </div>
+            )}
+            {showHud && (
+              <>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "10px",
+                    right: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    background: "rgba(0,0,0,0.65)",
+                    backdropFilter: "blur(8px)",
+                    padding: "3px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    fontSize: "11px",
+                    fontFamily: "var(--mono)",
+                    color: "var(--text-strong)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <span className="state-tag s-connected" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                    STREAM ACTIVE
+                  </span>
+                  <span style={{ color: "var(--cyan)" }}>{sel}</span>
+                  <span style={{ color: "var(--faint)" }}>
+                    {curScale !== 1 ? `${Math.round(curScale * 100)}%` : "1:1"}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "10px",
+                    left: "12px",
+                    background: "rgba(0,0,0,0.65)",
+                    backdropFilter: "blur(8px)",
+                    padding: "3px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    fontSize: "10px",
+                    fontFamily: "var(--mono)",
+                    color: "var(--cyan)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  CAMERA HUD · 60 FPS STREAM
+                </div>
+              </>
+            )}
           </>
         ) : (
-          <span className="mono muted">{sel ? `等待 ${sel}…` : "等待图像…"}</span>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "var(--muted)" }}>
+            <span className="mono" style={{ fontSize: 13 }}>{sel ? `等待图像流数据: ${sel}…` : "暂未配置图像流通道"}</span>
+            <span style={{ fontSize: 11, color: "var(--faint)" }}>可在左侧设置栏选择活动视频流或检查发布节点</span>
+          </div>
         )}
       </div>
     </div>
