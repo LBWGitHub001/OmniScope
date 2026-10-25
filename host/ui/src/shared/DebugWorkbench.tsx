@@ -163,6 +163,7 @@ export function DebugWorkbench({
   const [formulaDraft, setFormulaDraft] = useState("");
   const [formulaSource, setFormulaSource] = useState("");
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [activeMarkerCount, setActiveMarkerCount] = useState(0);
   const formulasRef = useRef(formulas);
   formulasRef.current = formulas;
 
@@ -177,6 +178,7 @@ export function DebugWorkbench({
   const logBuf = useRef<LogLine[]>([]);
   const imgBuf = useRef<Record<string, string>>({});
   const streamBuf = useRef<string[]>([]);
+  const markerBuf = useRef<Marker[]>([]);
   const chartDirty = useRef(false);
   const rafRef = useRef(0);
   const replayRef = useRef(replay);
@@ -282,6 +284,11 @@ export function DebugWorkbench({
         return [...s].sort();
       });
       setPanels((prev) => fillEmptyImgSels(prev, list[0] || ""));
+    }
+    if (markerBuf.current.length) {
+      const batch = markerBuf.current;
+      markerBuf.current = [];
+      setMarkers(batch);
     }
   }, [syncChart]);
 
@@ -513,10 +520,12 @@ export function DebugWorkbench({
         schedule();
       },
       addMarker(m) {
-        setMarkers((prev) => [...prev.slice(-300), m]);
+        markerBuf.current.push(m);
+        schedule();
       },
       addMarkers(ms) {
-        setMarkers((prev) => [...prev.slice(-300), ...ms]);
+        markerBuf.current.push(...ms);
+        schedule();
       },
       loadReplay(series, logs, duration, replayMarkers) {
         const nextSeries: Record<string, { x: number; y: number }[]> = {};
@@ -778,7 +787,7 @@ export function DebugWorkbench({
               className={panels.some((p) => p.kind === "3d") ? "wb-btn active cyber-glow" : "wb-btn"}
               onClick={() => toggleKind("3d")}
             >
-              🧊 3D 空间 {markers.length > 0 ? `(${markers.length})` : ""}
+              🧊 3D 空间 {activeMarkerCount > 0 ? `(${activeMarkerCount})` : ""}
             </button>
             <button
               type="button"
@@ -942,7 +951,11 @@ export function DebugWorkbench({
                   {k === "3d" && (
                     <Scene3DView
                       markers={markers}
-                      onClear={() => setMarkers([])}
+                      onClear={() => {
+                        setMarkers([]);
+                        setActiveMarkerCount(0);
+                      }}
+                      onActiveCountChange={setActiveMarkerCount}
                     />
                   )}
                 </div>

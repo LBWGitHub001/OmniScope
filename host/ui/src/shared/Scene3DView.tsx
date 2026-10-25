@@ -6,6 +6,7 @@ import { Marker, MarkerAction, MarkerType, MARKER_TYPE_NAMES } from "./markers";
 interface Scene3DViewProps {
   markers: Marker[];
   onClear?: () => void;
+  onActiveCountChange?: (count: number) => void;
   className?: string;
 }
 
@@ -316,7 +317,7 @@ function disposeHierarchy(obj: THREE.Object3D) {
   });
 }
 
-export function Scene3DView({ markers, onClear, className = "" }: Scene3DViewProps) {
+export function Scene3DView({ markers, onClear, onActiveCountChange, className = "" }: Scene3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -329,6 +330,10 @@ export function Scene3DView({ markers, onClear, className = "" }: Scene3DViewPro
   const [showGrid, setShowGrid] = useState(true);
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (onActiveCountChange) onActiveCountChange(activeCount);
+  }, [activeCount, onActiveCountChange]);
 
   // Initialize Three.js Scene
   useEffect(() => {
