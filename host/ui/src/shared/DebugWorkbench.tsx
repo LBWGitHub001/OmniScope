@@ -11,7 +11,7 @@ import zoomPlugin from "chartjs-plugin-zoom";
 import Hammer from "hammerjs";
 import { compileExpr, type ExprFn } from "./expr";
 import { type Marker } from "./markers";
-import { Scene3DView } from "./Scene3DView";
+import { Scene3DView, type Scene3DStats } from "./Scene3DView";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, zoomPlugin);
 (window as unknown as { Hammer: typeof Hammer }).Hammer = Hammer;
@@ -111,13 +111,17 @@ export function DebugWorkbench({
   const [selectedPaneIdx, setSelectedPaneIdx] = useState<number>(0);
   const [show3DGrid, setShow3DGrid] = useState<boolean>(true);
   const [gridSize3D, setGridSize3D] = useState<number>(20);
+  const [show3DAxes, setShow3DAxes] = useState<boolean>(true);
+  const [selectedNsFilter, setSelectedNsFilter] = useState<string>("all");
   const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
+  const [visibleObjects, setVisibleObjects] = useState<Record<string, boolean>>({});
   const [cameraPreset, setCameraPreset] = useState<{ id: number; type: "reset" | "top" | "front" | "side" } | null>(null);
-  const [scene3DStats, setScene3DStats] = useState<{
-    count: number;
-    namespaces: Record<string, number>;
-    types: Record<string, number>;
-  }>({ count: 0, namespaces: {}, types: {} });
+  const [scene3DStats, setScene3DStats] = useState<Scene3DStats>({
+    count: 0,
+    namespaces: {},
+    types: {},
+    objects: [],
+  });
   const [mode, setMode] = useState<ViewMode>("sliding");
   const [win, setWin] = useState(10);
   const [history, setHistory] = useState(60);
@@ -126,7 +130,13 @@ export function DebugWorkbench({
   const [images, setImages] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<string[]>([]);
   const [manual, setManual] = useState(false);
+  const manualRef = useRef(false);
   const kinds = panels.map((p) => p.kind);
+
+  const displayed3DObjects = useMemo(() => {
+    if (selectedNsFilter === "all") return scene3DStats.objects || [];
+    return (scene3DStats.objects || []).filter((obj) => obj.ns === selectedNsFilter);
+  }, [scene3DStats.objects, selectedNsFilter]);
 
   type WorkbenchFormula = {
     id: number;
@@ -779,6 +789,10 @@ export function DebugWorkbench({
                     <div><b style={{ color: "#00f0ff" }}>Z 轴</b>：车辆天向 (Cyan)</div>
                   </div>
                   <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <input type="checkbox" checked={show3DAxes} onChange={(e) => setShow3DAxes(e.target.checked)} />
+                    显示三轴立体指示箭头
+                  </label>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
                     <input type="checkbox" checked={show3DGrid} onChange={(e) => setShow3DGrid(e.target.checked)} />
                     显示基准网格
                   </label>
@@ -793,19 +807,40 @@ export function DebugWorkbench({
                 </div>
 
                 <div className="side-sec">
-                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>命名空间 ({Object.keys(scene3DStats.namespaces).length})</span>
+                  <div className="side-h" style={{ marginBottom: 4 }}>
+                    命名空间与物体过滤
+                  </div>
+                  <select
+                    style={{ width: "100%", fontSize: "11px", height: "26px", padding: "0 6px", margin: "4px 0 8px" }}
+                    value={selectedNsFilter}
+                    onChange={(e) => setSelectedNsFilter(e.target.value)}
+                  >
+                    <option value="all">所有命名空间 ({scene3DStats.objects?.length || 0} 物体)</option>
+                    {Object.entries(scene3DStats.namespaces).map(([ns, cnt]) => (
+                      <option key={ns} value={ns}>
+                        {ns} ({cnt} 物体)
+                      </option>
+                    ))}
+                  </select>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: "11px", color: "var(--faint)" }}>
+                      {selectedNsFilter === "all" ? "全部图元" : `「${selectedNsFilter}」图元`} ({displayed3DObjects.length})
+                    </span>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button
                         type="button"
                         className="ghost"
                         style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
                         onClick={() => {
-                          const all: Record<string, boolean> = {};
-                          Object.keys(scene3DStats.namespaces).forEach((n) => {
-                            all[n] = true;
+                          const next = { ...visibleObjects };
+                          displayed3DObjects.forEach((obj) => {
+                            next[obj.key] = true;
                           });
-                          setVisibleNs(all);
+                          setVisibleObjects(next);
+                          if (selectedNsFilter !== "all") {
+                            setVisibleNs((prev) => ({ ...prev, [selectedNsFilter]: true }));
+                          }
                         }}
                       >
                         全显
@@ -815,57 +850,103 @@ export function DebugWorkbench({
                         className="ghost"
                         style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
                         onClick={() => {
-                          const all: Record<string, boolean> = {};
-                          Object.keys(scene3DStats.namespaces).forEach((n) => {
-                            all[n] = false;
+                          const next = { ...visibleObjects };
+                          displayed3DObjects.forEach((obj) => {
+                            next[obj.key] = false;
                           });
-                          setVisibleNs(all);
+                          setVisibleObjects(next);
                         }}
                       >
                         全隐
                       </button>
                     </div>
                   </div>
-                  {Object.keys(scene3DStats.namespaces).length === 0 ? (
+
+                  {displayed3DObjects.length === 0 ? (
                     <span className="muted" style={{ fontSize: 11 }}>等待 3D 数据…</span>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                      {Object.entries(scene3DStats.namespaces).map(([ns, cnt]) => {
-                        const checked = visibleNs[ns] !== false;
+                    <div
+                      className="object-list-container"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                        maxHeight: "180px",
+                        overflowY: "auto",
+                        overflowX: "hidden",
+                        paddingRight: "2px",
+                      }}
+                    >
+                      {displayed3DObjects.map((obj) => {
+                        const isChecked = (visibleNs[obj.ns] !== false) && (visibleObjects[obj.key] !== false);
                         return (
                           <label
-                            key={ns}
+                            key={obj.key}
+                            className="object-row"
                             style={{
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              fontSize: 11,
-                              padding: "2px 0",
+                              fontSize: "11px",
+                              padding: "3px 4px",
+                              borderRadius: "3px",
                               cursor: "pointer",
+                              background: isChecked ? "rgba(255, 255, 255, 0.02)" : "transparent",
+                              opacity: isChecked ? 1 : 0.45,
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden", flex: 1 }}>
                               <input
                                 type="checkbox"
-                                checked={checked}
-                                onChange={() => setVisibleNs((prev) => ({ ...prev, [ns]: !checked }))}
+                                checked={isChecked}
+                                onChange={() => {
+                                  setVisibleObjects((prev) => ({
+                                    ...prev,
+                                    [obj.key]: !isChecked,
+                                  }));
+                                }}
                               />
-                              <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {ns}
+                              <span
+                                className="swatch-obj"
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 2,
+                                  flexShrink: 0,
+                                  background: obj.colorHex,
+                                }}
+                              />
+                              <span className="mono" style={{ fontSize: "10px", color: "var(--cyan)", fontWeight: 600 }}>
+                                #{obj.id}
+                              </span>
+                              <span
+                                className="mono"
+                                style={{
+                                  fontSize: "10px",
+                                  color: "var(--text)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title={obj.text ? `${obj.typeName}: ${obj.text}` : obj.typeName}
+                              >
+                                {obj.typeName}
+                                {obj.text ? ` (${obj.text})` : ""}
                               </span>
                             </div>
-                            <span
-                              className="mono"
-                              style={{
-                                color: "var(--cyan)",
-                                fontSize: 10,
-                                background: "rgba(0, 240, 255, 0.1)",
-                                padding: "0 5px",
-                                borderRadius: 3,
-                              }}
-                            >
-                              {cnt}
-                            </span>
+                            {selectedNsFilter === "all" && (
+                              <span
+                                className="mono"
+                                style={{
+                                  fontSize: "9px",
+                                  color: "var(--faint)",
+                                  marginLeft: 4,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {obj.ns}
+                              </span>
+                            )}
                           </label>
                         );
                       })}
@@ -1154,7 +1235,9 @@ export function DebugWorkbench({
                       onClear={() => setMarkers([])}
                       showGrid={show3DGrid}
                       gridSize={gridSize3D}
+                      showAxes={show3DAxes}
                       visibleNs={visibleNs}
+                      visibleObjects={visibleObjects}
                       cameraPreset={cameraPreset}
                       onStatsChange={setScene3DStats}
                     />

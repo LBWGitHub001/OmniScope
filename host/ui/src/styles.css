@@ -1002,6 +1002,25 @@ p.err-text { margin: 0 0 12px; }
   justify-content: center;
 }
 
+/* 3D Object List Filtering */
+.object-list-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.object-list-container::-webkit-scrollbar {
+  width: 4px;
+}
+.object-list-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.object-row:hover {
+  background: rgba(0, 240, 255, 0.05) !important;
+}
+.swatch-obj {
+  box-shadow: 0 0 4px currentColor;
+}
+
 /* Workbench Bottom Status Bar */
 .workbench-statusbar {
   height: 28px;
