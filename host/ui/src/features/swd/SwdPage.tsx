@@ -578,7 +578,7 @@ export function SwdPage() {
           style={{ fontSize: "12px", padding: "4px 10px", color: showMailbox ? "var(--amber)" : undefined }}
           onClick={() => setShowMailbox(!showMailbox)}
         >
-          🎛 Mailbox 调参
+          Mailbox 调参
         </button>
         <button
           type="button"
@@ -586,7 +586,7 @@ export function SwdPage() {
           style={{ fontSize: "12px", padding: "4px 10px" }}
           onClick={() => setShowSettings(!showSettings)}
         >
-          ⚙ 参数设置
+          参数设置
         </button>
         <button
           type="button"
@@ -594,7 +594,7 @@ export function SwdPage() {
           style={{ fontSize: "12px", padding: "4px 10px" }}
           onClick={() => setShowSerial(!showSerial)}
         >
-          📟 串口监控
+          串口监控
         </button>
       </div>
 
@@ -736,7 +736,7 @@ export function SwdPage() {
                     style={{ padding: "0 4px", fontSize: "12px", color: "var(--faint)" }}
                     onClick={() => removeFormula(f.id)}
                   >
-                    ✕
+                    ×
                   </button>
                 </div>
               ))}
@@ -761,7 +761,7 @@ export function SwdPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--amber)" }}>
-                🎛 MCU Mailbox 实时调参面板 (omniscope_mailbox_t)
+                MCU Mailbox 实时调参面板 (omniscope_mailbox_t)
               </span>
               <span className="mono" style={{ fontSize: "11px", color: "var(--muted)" }}>
                 零停机·SWD非侵入式热整定·支持16槽位
@@ -859,7 +859,7 @@ export function SwdPage() {
                   borderColor: "var(--border-light)",
                   borderRadius: "6px",
                 }}
-                placeholder="🔍 搜索全局符号 (nm -S)..."
+                placeholder="搜索全局符号 (nm -S)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -939,8 +939,7 @@ export function SwdPage() {
 
             {(!snap?.symbols || snap.symbols.length === 0) && (
               <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--faint)" }}>
-                <div style={{ fontSize: "20px", marginBottom: "8px" }}>📊</div>
-                <div style={{ fontSize: "12px" }}>暂无监视变量</div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)" }}>暂无监视变量</div>
                 <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "4px" }}>
                   在上方输入变量名进行模糊匹配添加
                 </div>
@@ -995,7 +994,7 @@ export function SwdPage() {
                       onClick={() => removeSymbol(row.name)}
                       title="移除监视"
                     >
-                      ✕
+                      ×
                     </button>
                   </div>
 
@@ -1042,7 +1041,7 @@ export function SwdPage() {
                           style={{ padding: "0 4px", height: "24px", fontSize: "11px" }}
                           onClick={() => setEditingSymbol(null)}
                         >
-                          ✕
+                          ×
                         </button>
                       </div>
                     ) : (
@@ -1071,11 +1070,11 @@ export function SwdPage() {
                         >
                           {valDisplay}
                         </span>
-                        <span style={{ fontSize: "11px", color: "var(--cyan)", opacity: 0.6 }} title="在线热改写">
-                          ✎
+                        <span style={{ fontSize: "10px", color: "var(--cyan)", opacity: 0.8 }} title="在线热改写">
+                          [改写]
                         </span>
                         {writeStatus[row.name] === "ok" && (
-                          <span style={{ fontSize: "10px", color: "var(--green)" }}>✓已改写</span>
+                          <span style={{ fontSize: "10px", color: "var(--green)" }}>[已改写]</span>
                         )}
                       </div>
                     )}
@@ -1146,7 +1145,7 @@ export function SwdPage() {
                 style={{ fontSize: "11px", padding: "3px 10px" }}
                 onClick={() => setIsPaused(!isPaused)}
               >
-                {isPaused ? "▶ 恢复" : "⏸ 暂停"}
+                {isPaused ? "恢复" : "暂停"}
               </button>
               <button
                 type="button"
@@ -1193,7 +1192,7 @@ export function SwdPage() {
                   fontSize: "12px",
                 }}
               >
-                <span style={{ fontWeight: 600, color: "var(--cyan)" }}>📟 硬件串口终端:</span>
+                <span style={{ fontWeight: 600, color: "var(--cyan)" }}>硬件串口终端:</span>
                 <select
                   style={{ fontSize: "11px", height: "26px" }}
                   value={serialDevice}

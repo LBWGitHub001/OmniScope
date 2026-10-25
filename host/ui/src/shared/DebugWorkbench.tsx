@@ -108,6 +108,16 @@ export function DebugWorkbench({
     setPrevPanels(null);
   }, []);
   const [sidebar, setSidebar] = useState(true);
+  const [selectedPaneIdx, setSelectedPaneIdx] = useState<number>(0);
+  const [show3DGrid, setShow3DGrid] = useState<boolean>(true);
+  const [gridSize3D, setGridSize3D] = useState<number>(20);
+  const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
+  const [cameraPreset, setCameraPreset] = useState<{ id: number; type: "reset" | "top" | "front" | "side" } | null>(null);
+  const [scene3DStats, setScene3DStats] = useState<{
+    count: number;
+    namespaces: Record<string, number>;
+    types: Record<string, number>;
+  }>({ count: 0, namespaces: {}, types: {} });
   const [mode, setMode] = useState<ViewMode>("sliding");
   const [win, setWin] = useState(10);
   const [history, setHistory] = useState(60);
@@ -562,6 +572,10 @@ export function DebugWorkbench({
     busOut(bus);
   }, [bus, busOut]);
 
+  const clampedSelectedIdx = Math.min(selectedPaneIdx, Math.max(0, panels.length - 1));
+  const activePanel = panels[clampedSelectedIdx] || panels[0];
+  const activeKind = activePanel?.kind || "plot";
+
   return (
     <div className="workbench-root">
       <aside className={sidebar ? "dbg-side" : "dbg-side collapsed"}>
@@ -570,133 +584,386 @@ export function DebugWorkbench({
         </button>
         {sidebar && (
           <div className="side-body">
-            <div className="side-title">设置</div>
-            <div className="side-sec">
-              <div className="side-h">显示模式</div>
-              {(["sliding", "centered", "paused"] as ViewMode[]).map((m) => (
-                <label key={m}>
-                  <input type="radio" name={replay ? "view-mode-replay" : "view-mode-watch"} checked={mode === m} onChange={() => setMode(m)} />
-                  {m === "sliding" ? "滑动" : m === "centered" ? "居中" : "暂停"}
-                </label>
-              ))}
+            <div className="side-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>
+                {activeKind === "plot" && "曲线绘图设置"}
+                {activeKind === "3d" && "3D 空间设置"}
+                {activeKind === "image" && "实时图像设置"}
+                {activeKind === "log" && "运行日志设置"}
+              </span>
+              <span
+                className="dev-tag"
+                style={{
+                  fontSize: "10px",
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  fontFamily: "var(--mono)",
+                  background:
+                    activeKind === "plot"
+                      ? "rgba(16, 185, 129, 0.15)"
+                      : activeKind === "3d"
+                      ? "rgba(0, 240, 255, 0.15)"
+                      : "rgba(255, 255, 255, 0.06)",
+                  color:
+                    activeKind === "plot"
+                      ? "var(--green)"
+                      : activeKind === "3d"
+                      ? "var(--cyan)"
+                      : "var(--muted)",
+                  border:
+                    activeKind === "plot"
+                      ? "1px solid rgba(16, 185, 129, 0.35)"
+                      : activeKind === "3d"
+                      ? "1px solid rgba(0, 240, 255, 0.35)"
+                      : "1px solid rgba(255, 255, 255, 0.12)",
+                }}
+              >
+                {activeKind === "plot" ? "已开发" : activeKind === "3d" ? "开发中" : "暂未开发"}
+              </span>
             </div>
-            <div className="side-sec">
-              <div className="side-h">窗口 (秒)</div>
-              <input type="number" min={1} max={120} value={win} onChange={(e) => setWin(Number(e.target.value) || 10)} />
-            </div>
-            <div className="side-sec">
-              <div className="side-h">历史</div>
-              <select value={history} onChange={(e) => setHistory(Number(e.target.value))}>
-                <option value={30}>30 秒</option>
-                <option value={60}>1 分钟</option>
-                <option value={120}>2 分钟</option>
-                <option value={300}>5 分钟</option>
-              </select>
-            </div>
-            <div className="side-sec">
-              <div className="side-h">数据字段</div>
-              {Object.keys(fields).length === 0 && <span className="muted">等待数据…</span>}
-              {Object.entries(fields).map(([name, meta]) => (
-                <label key={name} className="field-row">
-                  <input
-                    type="checkbox"
-                    checked={meta.on}
-                    onChange={(e) =>
-                      setFields((prev) => ({ ...prev, [name]: { ...prev[name], on: e.target.checked } }))
-                    }
-                  />
-                  <span className="swatch" style={{ background: meta.color }} />
-                  {name}
-                </label>
-              ))}
-            </div>
-            <div className="side-sec">
-              <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>虚拟公式通道 ƒ(x)</span>
-                <span className="mono" style={{ color: "var(--cyan)", fontSize: "10px" }}>
-                  {formulas.length}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <input
-                  style={{ fontSize: "11px", padding: "3px 6px", width: "100%" }}
-                  placeholder="如: sin(x)  2x  x*57.3"
-                  value={formulaDraft}
-                  onChange={(e) => setFormulaDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") addFormula();
-                  }}
-                />
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <select
-                    style={{ flex: 1, fontSize: "11px", height: "24px", minWidth: 0 }}
-                    value={formulaSource}
-                    onChange={(e) => setFormulaSource(e.target.value)}
-                  >
-                    <option value="">选 x 来源...</option>
-                    {Object.keys(fields).map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    style={{ padding: "0 8px", height: "24px", fontSize: "11px" }}
-                    onClick={addFormula}
-                  >
-                    +
-                  </button>
-                </div>
 
-                {formulas.map((f) => (
-                  <div
-                    key={f.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      fontSize: "11px",
-                      padding: "2px 0",
-                    }}
-                  >
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", overflow: "hidden" }}>
+            {/* Plot Context Settings */}
+            {activeKind === "plot" && (
+              <>
+                <div className="side-sec">
+                  <div className="side-h">显示模式</div>
+                  {(["sliding", "centered", "paused"] as ViewMode[]).map((m) => (
+                    <label key={m}>
+                      <input
+                        type="radio"
+                        name={replay ? "view-mode-replay" : "view-mode-watch"}
+                        checked={mode === m}
+                        onChange={() => setMode(m)}
+                      />
+                      {m === "sliding" ? "滑动" : m === "centered" ? "居中" : "暂停"}
+                    </label>
+                  ))}
+                </div>
+                <div className="side-sec">
+                  <div className="side-h">窗口 (秒)</div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={win}
+                    onChange={(e) => setWin(Number(e.target.value) || 10)}
+                  />
+                </div>
+                <div className="side-sec">
+                  <div className="side-h">历史</div>
+                  <select value={history} onChange={(e) => setHistory(Number(e.target.value))}>
+                    <option value={30}>30 秒</option>
+                    <option value={60}>1 分钟</option>
+                    <option value={120}>2 分钟</option>
+                    <option value={300}>5 分钟</option>
+                  </select>
+                </div>
+                <div className="side-sec">
+                  <div className="side-h">数据字段</div>
+                  {Object.keys(fields).length === 0 && <span className="muted">等待数据…</span>}
+                  {Object.entries(fields).map(([name, meta]) => (
+                    <label key={name} className="field-row">
                       <input
                         type="checkbox"
-                        checked={f.enabled}
-                        onChange={() => {
-                          setFormulas((prev) =>
-                            prev.map((item) => (item.id === f.id ? { ...item, enabled: !item.enabled } : item))
-                          );
-                          chartDirty.current = true;
-                          schedule();
-                        }}
+                        checked={meta.on}
+                        onChange={(e) =>
+                          setFields((prev) => ({ ...prev, [name]: { ...prev[name], on: e.target.checked } }))
+                        }
                       />
-                      <span className="swatch" style={{ background: f.color }} />
-                      <span
-                        className="mono"
-                        style={{ color: f.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={`${f.expr} [x=${f.source}]`}
-                      >
-                        {f.expr}
-                      </span>
+                      <span className="swatch" style={{ background: meta.color }} />
+                      {name}
                     </label>
+                  ))}
+                </div>
+                <div className="side-sec">
+                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>虚拟公式通道 ƒ(x)</span>
+                    <span className="mono" style={{ color: "var(--cyan)", fontSize: "10px" }}>
+                      {formulas.length}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <input
+                      style={{ fontSize: "11px", padding: "3px 6px", width: "100%" }}
+                      placeholder="如: sin(x)  2x  x*57.3"
+                      value={formulaDraft}
+                      onChange={(e) => setFormulaDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") addFormula();
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      <select
+                        style={{ flex: 1, fontSize: "11px", height: "24px", minWidth: 0 }}
+                        value={formulaSource}
+                        onChange={(e) => setFormulaSource(e.target.value)}
+                      >
+                        <option value="">选 x 来源...</option>
+                        {Object.keys(fields).map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        style={{ padding: "0 8px", height: "24px", fontSize: "11px" }}
+                        onClick={addFormula}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {formulas.map((f) => (
+                      <div
+                        key={f.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: "11px",
+                          padding: "2px 0",
+                        }}
+                      >
+                        <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", overflow: "hidden" }}>
+                          <input
+                            type="checkbox"
+                            checked={f.enabled}
+                            onChange={() => {
+                              setFormulas((prev) =>
+                                prev.map((item) => (item.id === f.id ? { ...item, enabled: !item.enabled } : item))
+                              );
+                              chartDirty.current = true;
+                              schedule();
+                            }}
+                          />
+                          <span className="swatch" style={{ background: f.color }} />
+                          <span
+                            className="mono"
+                            style={{ color: f.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            title={`${f.expr} [x=${f.source}]`}
+                          >
+                            {f.expr}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost"
+                          style={{ padding: "0 3px", fontSize: "11px" }}
+                          onClick={() => {
+                            setFormulas((prev) => prev.filter((item) => item.id !== f.id));
+                            chartDirty.current = true;
+                            schedule();
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 3D Context Settings */}
+            {activeKind === "3d" && (
+              <>
+                <div className="side-sec">
+                  <div className="side-h">坐标系基准</div>
+                  <div style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--cyan)", marginBottom: 6 }}>
+                    参考系: base_link
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", flexDirection: "column", gap: 3, margin: "6px 0" }}>
+                    <div><b style={{ color: "#f43f5e" }}>X 轴</b>：车辆前向 (Red)</div>
+                    <div><b style={{ color: "#10b981" }}>Y 轴</b>：车辆左向 (Green)</div>
+                    <div><b style={{ color: "#00f0ff" }}>Z 轴</b>：车辆天向 (Cyan)</div>
+                  </div>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <input type="checkbox" checked={show3DGrid} onChange={(e) => setShow3DGrid(e.target.checked)} />
+                    显示基准网格
+                  </label>
+                  <div style={{ marginTop: 6, fontSize: 11, color: "var(--muted)" }}>
+                    <div style={{ marginBottom: 4 }}>网格尺寸</div>
+                    <select value={gridSize3D} onChange={(e) => setGridSize3D(Number(e.target.value))}>
+                      <option value={10}>10 米 (10×10)</option>
+                      <option value={20}>20 米 (20×20)</option>
+                      <option value={50}>50 米 (50×50)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>命名空间 ({Object.keys(scene3DStats.namespaces).length})</span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
+                        onClick={() => {
+                          const all: Record<string, boolean> = {};
+                          Object.keys(scene3DStats.namespaces).forEach((n) => {
+                            all[n] = true;
+                          });
+                          setVisibleNs(all);
+                        }}
+                      >
+                        全显
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
+                        onClick={() => {
+                          const all: Record<string, boolean> = {};
+                          Object.keys(scene3DStats.namespaces).forEach((n) => {
+                            all[n] = false;
+                          });
+                          setVisibleNs(all);
+                        }}
+                      >
+                        全隐
+                      </button>
+                    </div>
+                  </div>
+                  {Object.keys(scene3DStats.namespaces).length === 0 ? (
+                    <span className="muted" style={{ fontSize: 11 }}>等待 3D 数据…</span>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                      {Object.entries(scene3DStats.namespaces).map(([ns, cnt]) => {
+                        const checked = visibleNs[ns] !== false;
+                        return (
+                          <label
+                            key={ns}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              fontSize: 11,
+                              padding: "2px 0",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => setVisibleNs((prev) => ({ ...prev, [ns]: !checked }))}
+                              />
+                              <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {ns}
+                              </span>
+                            </div>
+                            <span
+                              className="mono"
+                              style={{
+                                color: "var(--cyan)",
+                                fontSize: 10,
+                                background: "rgba(0, 240, 255, 0.1)",
+                                padding: "0 5px",
+                                borderRadius: 3,
+                              }}
+                            >
+                              {cnt}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">相机预设视角</div>
+                  <div className="cam-btn-grid">
+                    <button type="button" className="ghost" onClick={() => setCameraPreset({ id: Date.now(), type: "reset" })}>
+                      透视视角
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setCameraPreset({ id: Date.now(), type: "top" })}>
+                      顶视 (俯视)
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setCameraPreset({ id: Date.now(), type: "front" })}>
+                      正前视角
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setCameraPreset({ id: Date.now(), type: "side" })}>
+                      正侧视角
+                    </button>
                     <button
                       type="button"
                       className="ghost"
-                      style={{ padding: "0 3px", fontSize: "11px" }}
-                      onClick={() => {
-                        setFormulas((prev) => prev.filter((item) => item.id !== f.id));
-                        chartDirty.current = true;
-                        schedule();
-                      }}
+                      style={{ gridColumn: "span 2" }}
+                      onClick={() => setCameraPreset({ id: Date.now(), type: "reset" })}
                     >
-                      ×
+                      复位视角
                     </button>
                   </div>
-                ))}
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">图元统计与操作</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+                    <div>
+                      活动图元：<b className="mono" style={{ color: "var(--cyan)" }}>{scene3DStats.count}</b> 个
+                    </div>
+                    {Object.entries(scene3DStats.types).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                        {Object.entries(scene3DStats.types).map(([typeName, cnt]) => (
+                          <span
+                            key={typeName}
+                            className="mono"
+                            style={{
+                              fontSize: 10,
+                              background: "rgba(255,255,255,0.05)",
+                              padding: "1px 5px",
+                              borderRadius: 3,
+                            }}
+                          >
+                            {typeName}: {cnt}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost"
+                    style={{ width: "100%", height: 26, fontSize: 11, color: "var(--err)" }}
+                    onClick={() => {
+                      setMarkers([]);
+                      setScene3DStats({ count: 0, namespaces: {}, types: {} });
+                    }}
+                  >
+                    清空空间标记
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Undeveloped Image Context */}
+            {activeKind === "image" && (
+              <div className="side-sec">
+                <div className="dev-placeholder">
+                  <div className="dev-badge">功能暂未开发</div>
+                  <div className="dev-title">实时图像参数设置</div>
+                  <p className="dev-desc">
+                    图像流通道选路、曝光与增益调节、分辨率与压缩质量切换、标定标尺叠加等功能正在规划中。
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Undeveloped Log Context */}
+            {activeKind === "log" && (
+              <div className="side-sec">
+                <div className="dev-placeholder">
+                  <div className="dev-badge">功能暂未开发</div>
+                  <div className="dev-title">运行日志参数设置</div>
+                  <p className="dev-desc">
+                    日志级别正则过滤、关键词高亮与高频抑制、日志流限速与导出存档功能正在规划中。
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </aside>
@@ -707,13 +974,46 @@ export function DebugWorkbench({
             const k = panel.kind;
             const imgSel = panel.imgSel || names[0] || "";
             const isSingle = panels.length === 1;
+            const isSelected = clampedSelectedIdx === i;
             return (
-              <div className="tile-pane" key={i}>
+              <div
+                className={`tile-pane ${isSelected ? "active-tile" : ""}`}
+                key={i}
+                onClick={() => setSelectedPaneIdx(i)}
+              >
                 <div className="tile-head">
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 12 }}>
-                    <span>{k === "3d" ? "🧊" : k === "plot" ? "📈" : k === "image" ? "📷" : "📋"}</span>
                     <span style={{ color: k === "3d" ? "var(--cyan)" : undefined }}>
                       {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : "运行日志"}
+                    </span>
+                    <span
+                      className="dev-tag"
+                      style={{
+                        fontSize: "10px",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontFamily: "var(--mono)",
+                        background:
+                          k === "plot"
+                            ? "rgba(16, 185, 129, 0.15)"
+                            : k === "3d"
+                            ? "rgba(0, 240, 255, 0.15)"
+                            : "rgba(255, 255, 255, 0.06)",
+                        color:
+                          k === "plot"
+                            ? "var(--green)"
+                            : k === "3d"
+                            ? "var(--cyan)"
+                            : "var(--muted)",
+                        border:
+                          k === "plot"
+                            ? "1px solid rgba(16, 185, 129, 0.35)"
+                            : k === "3d"
+                            ? "1px solid rgba(0, 240, 255, 0.35)"
+                            : "1px solid rgba(255, 255, 255, 0.12)",
+                      }}
+                    >
+                      {k === "plot" ? "已开发" : k === "3d" ? "开发中" : "暂未开发"}
                     </span>
                   </div>
                   <select
@@ -743,7 +1043,8 @@ export function DebugWorkbench({
                     type="button"
                     className="ghost"
                     title={isSingle ? "还原多窗视口" : "最大化当前视口"}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (isSingle) {
                         if (prevPanels && prevPanels.length > 1) {
                           setPanels(prevPanels);
@@ -758,13 +1059,14 @@ export function DebugWorkbench({
                       }
                     }}
                   >
-                    {isSingle ? "◫ 还原" : "⛶ 最大化"}
+                    {isSingle ? "还原" : "最大化"}
                   </button>
                   <button
                     type="button"
                     className="ghost"
                     title="向右拆分"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setPanels((prev) => {
                         const n = [...prev];
                         n.splice(i + 1, 0, { kind: "plot", imgSel: "" });
@@ -779,7 +1081,10 @@ export function DebugWorkbench({
                       type="button"
                       className="ghost"
                       title="关闭"
-                      onClick={() => setPanels((prev) => prev.filter((_, j) => j !== i))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPanels((prev) => prev.filter((_, j) => j !== i));
+                      }}
                     >
                       ×
                     </button>
@@ -847,6 +1152,11 @@ export function DebugWorkbench({
                     <Scene3DView
                       markers={markers}
                       onClear={() => setMarkers([])}
+                      showGrid={show3DGrid}
+                      gridSize={gridSize3D}
+                      visibleNs={visibleNs}
+                      cameraPreset={cameraPreset}
+                      onStatsChange={setScene3DStats}
                     />
                   )}
                 </div>
@@ -854,6 +1164,65 @@ export function DebugWorkbench({
             );
           })}
         </div>
+
+        {/* Workbench Bottom Status Bar */}
+        <footer className="workbench-statusbar">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span>当前视口:</span>
+            <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>
+              {activeKind === "plot" ? "曲线绘图" : activeKind === "3d" ? "3D 空间视口" : activeKind === "image" ? "实时图像" : "运行日志"}
+            </span>
+            <span
+              className="dev-tag"
+              style={{
+                fontSize: "10px",
+                padding: "0 5px",
+                borderRadius: 3,
+                background:
+                  activeKind === "plot"
+                    ? "rgba(16, 185, 129, 0.15)"
+                    : activeKind === "3d"
+                    ? "rgba(0, 240, 255, 0.15)"
+                    : "rgba(255, 255, 255, 0.06)",
+                color:
+                  activeKind === "plot"
+                    ? "var(--green)"
+                    : activeKind === "3d"
+                    ? "var(--cyan)"
+                    : "var(--muted)",
+                border:
+                  activeKind === "plot"
+                    ? "1px solid rgba(16, 185, 129, 0.35)"
+                    : activeKind === "3d"
+                    ? "1px solid rgba(0, 240, 255, 0.35)"
+                    : "1px solid rgba(255, 255, 255, 0.12)",
+              }}
+            >
+              {activeKind === "plot" ? "已开发" : activeKind === "3d" ? "正在开发" : "暂未开发"}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--muted)", fontSize: 11 }}>
+            {activeKind === "plot" && (
+              <span>
+                模式: {mode === "sliding" ? "滑动" : mode === "centered" ? "居中" : "暂停"} · 窗口: {win}s · 活跃通道: {Object.values(fields).filter((f) => f.on).length}/{Object.keys(fields).length}
+              </span>
+            )}
+            {activeKind === "3d" && (
+              <span>
+                参考系: base_link · 命名空间: {Object.keys(scene3DStats.namespaces).length} · 活动 Marker: {scene3DStats.count} · 网格: {show3DGrid ? `${gridSize3D}m` : "关闭"}
+              </span>
+            )}
+            {activeKind === "image" && (
+              <span>视频通道: {panels[clampedSelectedIdx]?.imgSel || names[0] || "无信号"} · 图像配置暂未开发</span>
+            )}
+            {activeKind === "log" && (
+              <span>终端日志: {logs.length} 条 · 规则过滤暂未开发</span>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--faint)" }}>
+            <span>{panels.length === 4 ? "2×2 网格" : panels.length === 1 ? "单屏专注" : `${panels.length} 分屏`}</span>
+          </div>
+        </footer>
       </div>
     </div>
   );

@@ -313,9 +313,8 @@ export function SerialPage() {
       >
         {logs.length === 0 && (
           <div style={{ textAlign: "center", padding: "60px 0", color: "var(--faint)" }}>
-            <div style={{ fontSize: "28px", marginBottom: "8px" }}>📟</div>
-            <div>串口接收监视控制台已就绪</div>
-            <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "4px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "4px", color: "var(--text)" }}>串口监视终端就绪</div>
+            <div style={{ fontSize: "11px", color: "var(--muted)" }}>
               选择设备与波特率后点击「打开串口」开始接收数据
             </div>
           </div>

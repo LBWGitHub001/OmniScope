@@ -7,7 +7,16 @@ interface Scene3DViewProps {
   markers: Marker[];
   onClear?: () => void;
   onActiveCountChange?: (count: number) => void;
+  onStatsChange?: (stats: {
+    count: number;
+    namespaces: Record<string, number>;
+    types: Record<string, number>;
+  }) => void;
   className?: string;
+  showGrid?: boolean;
+  gridSize?: number;
+  visibleNs?: Record<string, boolean>;
+  cameraPreset?: { id: number; type: "reset" | "top" | "front" | "side" } | null;
 }
 
 interface MarkerRecord {
@@ -317,7 +326,17 @@ function disposeHierarchy(obj: THREE.Object3D) {
   });
 }
 
-export function Scene3DView({ markers, onClear, onActiveCountChange, className = "" }: Scene3DViewProps) {
+export function Scene3DView({
+  markers,
+  onClear,
+  onActiveCountChange,
+  onStatsChange,
+  className = "",
+  showGrid = true,
+  gridSize = 20,
+  visibleNs = {},
+  cameraPreset = null,
+}: Scene3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -327,13 +346,21 @@ export function Scene3DView({ markers, onClear, onActiveCountChange, className =
   const markerMapRef = useRef<Map<string, MarkerRecord>>(new Map());
 
   const [activeCount, setActiveCount] = useState(0);
-  const [showGrid, setShowGrid] = useState(true);
-  const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (onActiveCountChange) onActiveCountChange(activeCount);
-  }, [activeCount, onActiveCountChange]);
+  const reportStats = useCallback(() => {
+    const namespaces: Record<string, number> = {};
+    const types: Record<string, number> = {};
+    markerMapRef.current.forEach((rec) => {
+      const ns = rec.marker.ns || "default";
+      namespaces[ns] = (namespaces[ns] || 0) + 1;
+      const typeName = MARKER_TYPE_NAMES[rec.marker.type] || `Type_${rec.marker.type}`;
+      types[typeName] = (types[typeName] || 0) + 1;
+    });
+    const count = markerMapRef.current.size;
+    setActiveCount(count);
+    if (onActiveCountChange) onActiveCountChange(count);
+    if (onStatsChange) onStatsChange({ count, namespaces, types });
+  }, [onActiveCountChange, onStatsChange]);
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -382,8 +409,9 @@ export function Scene3DView({ markers, onClear, onActiveCountChange, className =
     scene.add(dirLight2);
 
     // Grid (Flat on XY plane, Z=0)
-    const grid = new THREE.GridHelper(20, 20, 0x00f0ff, 0x1e2433);
+    const grid = new THREE.GridHelper(gridSize, gridSize, 0x00f0ff, 0x1e2433);
     grid.rotation.x = Math.PI / 2; // Lie flat on XY plane
+    grid.visible = showGrid !== false;
     scene.add(grid);
     gridRef.current = grid;
 
@@ -422,7 +450,7 @@ export function Scene3DView({ markers, onClear, onActiveCountChange, className =
         }
       });
       if (changed) {
-        setActiveCount(markerMapRef.current.size);
+        reportStats();
       }
 
       renderer.render(scene, camera);
@@ -444,65 +472,108 @@ export function Scene3DView({ markers, onClear, onActiveCountChange, className =
     };
   }, []);
 
-  // Process Incoming Markers & Actions
-  const processMarker = useCallback((m: Marker) => {
+  // Update Ground Grid when gridSize or showGrid changes
+  useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-
-    const ns = m.ns || "default";
-    const id = m.id ?? 0;
-    const key = `${ns}:${id}`;
-    const action = m.action ?? MarkerAction.ADD;
-
-    if (action === MarkerAction.DELETEALL) {
-      // Clear all markers or specific namespace
-      markerMapRef.current.forEach((rec, k) => {
-        if (!m.ns || rec.marker.ns === m.ns) {
-          scene.remove(rec.object);
-          disposeHierarchy(rec.object);
-          markerMapRef.current.delete(k);
-        }
-      });
-      setActiveCount(markerMapRef.current.size);
-      return;
+    if (gridRef.current) {
+      scene.remove(gridRef.current);
+      disposeHierarchy(gridRef.current);
     }
+    const grid = new THREE.GridHelper(gridSize, gridSize, 0x00f0ff, 0x1e2433);
+    grid.rotation.x = Math.PI / 2;
+    grid.visible = showGrid !== false;
+    scene.add(grid);
+    gridRef.current = grid;
+  }, [gridSize, showGrid]);
 
-    if (action === MarkerAction.DELETE) {
+  // React to Camera Presets
+  const lastPresetIdRef = useRef<number>(0);
+  useEffect(() => {
+    if (!cameraPreset || cameraPreset.id === lastPresetIdRef.current) return;
+    lastPresetIdRef.current = cameraPreset.id;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    if (cameraPreset.type === "reset") {
+      camera.position.set(-6, -6, 4.5);
+      camera.up.set(0, 0, 1);
+      controls.target.set(0, 0, 0);
+    } else if (cameraPreset.type === "top") {
+      camera.position.set(0, 0, 14);
+      camera.up.set(1, 0, 0);
+      controls.target.set(0, 0, 0);
+    } else if (cameraPreset.type === "front") {
+      camera.position.set(8, 0, 1.5);
+      camera.up.set(0, 0, 1);
+      controls.target.set(0, 0, 1.5);
+    } else if (cameraPreset.type === "side") {
+      camera.position.set(0, 8, 1.5);
+      camera.up.set(0, 0, 1);
+      controls.target.set(0, 0, 1.5);
+    }
+    controls.update();
+  }, [cameraPreset]);
+
+  // Process Incoming Markers & Actions
+  const processMarker = useCallback(
+    (m: Marker) => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+
+      const ns = m.ns || "default";
+      const id = m.id ?? 0;
+      const key = `${ns}:${id}`;
+      const action = m.action ?? MarkerAction.ADD;
+
+      if (action === MarkerAction.DELETEALL) {
+        markerMapRef.current.forEach((rec, k) => {
+          if (!m.ns || rec.marker.ns === m.ns) {
+            scene.remove(rec.object);
+            disposeHierarchy(rec.object);
+            markerMapRef.current.delete(k);
+          }
+        });
+        reportStats();
+        return;
+      }
+
+      if (action === MarkerAction.DELETE) {
+        const existing = markerMapRef.current.get(key);
+        if (existing) {
+          scene.remove(existing.object);
+          disposeHierarchy(existing.object);
+          markerMapRef.current.delete(key);
+          reportStats();
+        }
+        return;
+      }
+
+      // ADD / MODIFY action
       const existing = markerMapRef.current.get(key);
       if (existing) {
         scene.remove(existing.object);
         disposeHierarchy(existing.object);
-        markerMapRef.current.delete(key);
-        setActiveCount(markerMapRef.current.size);
       }
-      return;
-    }
 
-    // ADD / MODIFY action
-    const existing = markerMapRef.current.get(key);
-    if (existing) {
-      scene.remove(existing.object);
-      disposeHierarchy(existing.object);
-    }
+      const obj = createMarkerObject(m);
+      obj.visible = visibleNs[ns] !== false;
+      scene.add(obj);
 
-    const obj = createMarkerObject(m);
-    obj.visible = visibleNs[ns] !== false;
-    scene.add(obj);
+      const lifetimeMs = (m.lifetime || 0) * 1000;
+      const expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
 
-    const lifetimeMs = (m.lifetime || 0) * 1000;
-    const expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
+      markerMapRef.current.set(key, {
+        marker: m,
+        object: obj,
+        expireTime,
+      });
 
-    markerMapRef.current.set(key, {
-      marker: m,
-      object: obj,
-      expireTime,
-    });
-
-    setActiveCount(markerMapRef.current.size);
-
-    // Track unique namespaces
-    setNamespaces((prev) => (prev.includes(ns) ? prev : [...prev, ns]));
-  }, [visibleNs]);
+      reportStats();
+    },
+    [visibleNs, reportStats]
+  );
 
   // Sync incoming markers prop
   useEffect(() => {
@@ -511,166 +582,56 @@ export function Scene3DView({ markers, onClear, onActiveCountChange, className =
     }
   }, [markers, processMarker]);
 
+  // Clean clearing if markers array is empty
+  useEffect(() => {
+    if (!markers || markers.length === 0) {
+      const scene = sceneRef.current;
+      if (scene) {
+        markerMapRef.current.forEach((rec) => {
+          scene.remove(rec.object);
+          disposeHierarchy(rec.object);
+        });
+      }
+      markerMapRef.current.clear();
+      reportStats();
+    }
+  }, [markers, reportStats]);
+
   // Update visibility when namespace filters change
   useEffect(() => {
     markerMapRef.current.forEach((rec) => {
       const ns = rec.marker.ns || "default";
-      rec.object.visible = visibleNs[ns] !== false;
+      rec.object.visible = visibleNs ? visibleNs[ns] !== false : true;
     });
   }, [visibleNs]);
-
-  // Toolbar Actions
-  const handleResetCamera = () => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    cameraRef.current.position.set(-6, -6, 4.5);
-    cameraRef.current.up.set(0, 0, 1);
-    controlsRef.current.target.set(0, 0, 0);
-    controlsRef.current.update();
-  };
-
-  const handleTopDownCamera = () => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    cameraRef.current.position.set(0, 0, 12);
-    cameraRef.current.up.set(1, 0, 0); // Point forward
-    controlsRef.current.target.set(0, 0, 0);
-    controlsRef.current.update();
-  };
-
-  const handleToggleGrid = () => {
-    setShowGrid((prev) => {
-      const next = !prev;
-      if (gridRef.current) gridRef.current.visible = next;
-      return next;
-    });
-  };
-
-  const handleClearAll = () => {
-    const scene = sceneRef.current;
-    if (scene) {
-      markerMapRef.current.forEach((rec) => {
-        scene.remove(rec.object);
-        disposeHierarchy(rec.object);
-      });
-    }
-    markerMapRef.current.clear();
-    setActiveCount(0);
-    if (onClear) onClear();
-  };
-
-  const toggleNs = (ns: string) => {
-    setVisibleNs((prev) => ({
-      ...prev,
-      [ns]: prev[ns] === false,
-    }));
-  };
 
   return (
     <div className={`scene3d-container ${className}`} style={{ position: "relative", width: "100%", height: "100%" }}>
       {/* 3D WebGL Canvas */}
       <div ref={mountRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />
 
-      {/* Floating HUD Toolbar */}
+      {/* Top Left: Active Markers Badge */}
       <div
-        className="scene3d-toolbar"
         style={{
           position: "absolute",
           top: 10,
           left: 10,
-          right: 10,
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          gap: 6,
+          padding: "3px 10px",
+          background: "rgba(10, 14, 24, 0.85)",
+          border: "1px solid rgba(0, 240, 255, 0.35)",
+          borderRadius: 6,
+          fontSize: 12,
+          fontFamily: "var(--mono)",
+          color: "var(--cyan)",
+          backdropFilter: "blur(8px)",
           pointerEvents: "none",
-          gap: 8,
         }}
       >
-        {/* Left: Active Markers Badge & Namespaces */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto", flexWrap: "wrap" }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "3px 10px",
-              background: "rgba(10, 14, 24, 0.85)",
-              border: "1px solid rgba(0, 240, 255, 0.35)",
-              borderRadius: 6,
-              fontSize: 12,
-              fontFamily: "var(--mono)",
-              color: "var(--cyan)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeCount > 0 ? "var(--cyan)" : "#666" }} />
-            {activeCount} 3D Markers
-          </span>
-
-          {namespaces.map((ns) => {
-            const on = visibleNs[ns] !== false;
-            return (
-              <button
-                key={ns}
-                onClick={() => toggleNs(ns)}
-                className={`ghost ${on ? "" : "disabled"}`}
-                style={{
-                  height: 24,
-                  padding: "0 8px",
-                  fontSize: 11,
-                  fontFamily: "var(--mono)",
-                  background: on ? "rgba(0, 240, 255, 0.15)" : "rgba(255,255,255,0.05)",
-                  borderColor: on ? "var(--cyan)" : "transparent",
-                  color: on ? "#fff" : "var(--muted)",
-                  borderRadius: 4,
-                }}
-                title={`点击切换命名空间 ${ns} 的可见性`}
-              >
-                {ns}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Right: Camera & Grid Controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
-          <button
-            onClick={handleResetCamera}
-            className="ghost"
-            style={{ height: 26, fontSize: 11, padding: "0 8px", background: "rgba(10,14,24,0.85)" }}
-            title="重置为透视观察视角"
-          >
-            视角重置
-          </button>
-          <button
-            onClick={handleTopDownCamera}
-            className="ghost"
-            style={{ height: 26, fontSize: 11, padding: "0 8px", background: "rgba(10,14,24,0.85)" }}
-            title="切换为顶视俯视图"
-          >
-            俯视
-          </button>
-          <button
-            onClick={handleToggleGrid}
-            className="ghost"
-            style={{
-              height: 26,
-              fontSize: 11,
-              padding: "0 8px",
-              background: showGrid ? "rgba(0, 240, 255, 0.15)" : "rgba(10,14,24,0.85)",
-              color: showGrid ? "var(--cyan)" : "var(--muted)",
-            }}
-            title="显示/隐藏基准地面网格"
-          >
-            网格
-          </button>
-          <button
-            onClick={handleClearAll}
-            className="ghost"
-            style={{ height: 26, fontSize: 11, padding: "0 8px", background: "rgba(10,14,24,0.85)", color: "var(--err)" }}
-            title="清空所有 3D 标记"
-          >
-            清空
-          </button>
-        </div>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeCount > 0 ? "var(--cyan)" : "#666" }} />
+        {activeCount} 标记 (base_link)
       </div>
 
       {/* Coordinate Axes Legend at Bottom Right */}

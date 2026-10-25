@@ -233,7 +233,7 @@ export function CalibratePage() {
           className={`state-tag ${status.board ? "s-connected" : "s-idle"}`}
           style={{ fontSize: "11px", padding: "2px 8px" }}
         >
-          {status.board ? "🎯 棋盘格已锁定 (BOARD OK)" : "未检测到标定板"}
+          {status.board ? "棋盘格已锁定 (BOARD OK)" : "未检测到标定板"}
         </span>
 
         {/* Coverage Status */}
@@ -308,8 +308,7 @@ export function CalibratePage() {
             </div>
           ) : (
             <div style={{ textAlign: "center", color: "var(--faint)" }}>
-              <div style={{ fontSize: "36px", marginBottom: "12px" }}>📷</div>
-              <div style={{ fontSize: "14px" }}>等待标定图像流回传</div>
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>等待标定图像流回传</div>
               <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "6px" }}>
                 请确认车载客户端已启动标定程序 (app: calibrate)
               </div>
@@ -451,7 +450,7 @@ export function CalibratePage() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)" }}>
-                  标定解算成功 ✓
+                  标定解算成功 [OK]
                 </span>
                 <span className="mono" style={{ fontSize: "11px", color: "var(--green)" }}>
                   RMS: {Number(status.reproj || 0).toFixed(4)} px

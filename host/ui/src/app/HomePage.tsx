@@ -127,8 +127,8 @@ export function HomePage() {
               </div>
             </div>
             <div className="team-tribute-tags">
-              <span className="team-tribute-tag tag-cyan">⚡ 实时遥测 & SWD 探针</span>
-              <span className="team-tribute-tag tag-amber">🎯 视觉标定 & 回放工作台</span>
+              <span className="team-tribute-tag tag-cyan">实时遥测 & SWD 探针</span>
+              <span className="team-tribute-tag tag-amber">视觉标定 & 回放工作台</span>
             </div>
           </div>
 
@@ -306,7 +306,7 @@ export function InstancePage() {
           <span>线程运行中</span>
         </div>
         <button type="button" className="ghost" style={{ fontSize: "12px", color: "var(--err)" }} onClick={close}>
-          关闭实例 ✕
+          关闭实例
         </button>
       </header>
 
