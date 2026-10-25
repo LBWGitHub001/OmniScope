@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { FEATURE_MODULES } from "../features/registry";
 import { featureStatus, getJson, listInstances, openFeature } from "../shared/api";
 import { InstanceProvider } from "../shared/instance";
@@ -69,7 +69,9 @@ export function HomePage() {
     setErr("");
     try {
       const r = await openFeature(feature, config);
-      const w = window.open(r.path, "_blank");
+      const senderParam = config.sender ? `&sender=${encodeURIComponent(String(config.sender))}` : "";
+      const url = r.path ? `${r.path}?feature=${feature}${senderParam}` : r.path;
+      const w = window.open(url, "_blank");
       if (!w) setErr("浏览器拦截了新窗口，请允许弹窗后重试");
     } catch (e) {
       setErr(String(e));
@@ -259,7 +261,8 @@ export function HomePage() {
 
 export function InstancePage() {
   const { iid } = useParams();
-  const [feature, setFeature] = useState("");
+  const [searchParams] = useSearchParams();
+  const [feature, setFeature] = useState(searchParams.get("feature") || "");
   const [err, setErr] = useState("");
 
   useEffect(() => {

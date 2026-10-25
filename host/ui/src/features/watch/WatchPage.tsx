@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { featureStatus, getJson, postJson, startFeature, stopFeature } from "../../shared/api";
 import { useSSE } from "../../shared/useSSE";
 import { useInstance } from "../../shared/instance";
@@ -56,15 +57,17 @@ function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: {
 
 export function WatchPage() {
   const inst = useInstance();
-  const [state, setState] = useState("idle");
+  const [searchParams] = useSearchParams();
+  const initialSender = searchParams.get("sender") || searchParams.get("robot") || "";
+  const [state, setState] = useState(initialSender ? "running" : "idle");
   const [err, setErr] = useState("");
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialSender);
   const [port, setPort] = useState(0);
   const [robots, setRobots] = useState<{ name: string; ip: string; data_port: number }[]>([]);
   const [manual, setManual] = useState("");
   const busRef = useRef<DataBus | null>(null);
   const t0Ref = useRef<number | null>(null);
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(!!initialSender);
 
   const refresh = useCallback(async () => {
     try {
