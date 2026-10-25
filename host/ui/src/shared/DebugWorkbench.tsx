@@ -943,7 +943,6 @@ export function DebugWorkbench({
                     <Scene3DView
                       markers={markers}
                       onClear={() => setMarkers([])}
-                      onLoadDemo={(demo) => setMarkers(demo)}
                     />
                   )}
                 </div>
