@@ -1095,32 +1095,6 @@ p.err-text { margin: 0 0 12px; }
   user-select: none;
 }
 
-/* HUD Overlay Styles */
-.hud-crosshair {
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 60px; height: 60px;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-.hud-crosshair::before, .hud-crosshair::after {
-  content: "";
-  position: absolute;
-  background: rgba(0, 240, 255, 0.6);
-}
-.hud-crosshair::before { top: 0; bottom: 0; left: 50%; width: 1px; }
-.hud-crosshair::after { left: 0; right: 0; top: 50%; height: 1px; }
-.hud-corner {
-  position: absolute;
-  width: 12px; height: 12px;
-  border-color: var(--cyan);
-  border-style: solid;
-}
-.hud-corner-tl { top: 0; left: 0; border-width: 2px 0 0 2px; }
-.hud-corner-tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
-.hud-corner-bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
-.hud-corner-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
-
 .sidebar {
   width: 240px;
   border-right: 1px solid var(--border);

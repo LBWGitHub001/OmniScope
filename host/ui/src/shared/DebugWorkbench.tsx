@@ -140,13 +140,6 @@ export function DebugWorkbench({
   const maxLogBufferRef = useRef(maxLogBuffer);
   maxLogBufferRef.current = maxLogBuffer;
 
-  // Image viewport controls & settings
-  const [imgScale, setImgScale] = useState(1);
-  const [imgPan, setImgPan] = useState({ x: 0, y: 0 });
-  const [showImgCrosshair, setShowImgCrosshair] = useState(true);
-  const [showImgHudInfo, setShowImgHudInfo] = useState(true);
-  const [imgSmooth, setImgSmooth] = useState(true);
-
   const logStats = useMemo(() => {
     let debug = 0;
     let info = 0;
@@ -665,8 +658,6 @@ export function DebugWorkbench({
       }
       return next;
     });
-    setImgScale(1);
-    setImgPan({ x: 0, y: 0 });
   };
 
   return (
@@ -1100,115 +1091,6 @@ export function DebugWorkbench({
                 </div>
 
                 <div className="side-sec">
-                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>视口缩放与平移</span>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--cyan)" }}>
-                      {Math.round(imgScale * 100)}%
-                    </span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ height: 26, fontSize: 11 }}
-                      onClick={() => {
-                        setImgScale(1);
-                        setImgPan({ x: 0, y: 0 });
-                      }}
-                    >
-                      适应窗口 (Fit)
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ height: 26, fontSize: 11 }}
-                      onClick={() => {
-                        setImgScale(1);
-                        setImgPan({ x: 0, y: 0 });
-                      }}
-                    >
-                      1:1 原生比例
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ height: 26, fontSize: 11 }}
-                      onClick={() => setImgScale((s) => Math.min(15, Number((s * 1.25).toFixed(2))))}
-                    >
-                      放大 (+)
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ height: 26, fontSize: 11 }}
-                      onClick={() => setImgScale((s) => Math.max(0.1, Number((s * 0.8).toFixed(2))))}
-                    >
-                      缩小 (-)
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ gridColumn: "span 2", height: 26, fontSize: 11 }}
-                      onClick={() => setImgPan({ x: 0, y: 0 })}
-                    >
-                      居中复位 (平移 0, 0)
-                    </button>
-                  </div>
-
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>快速倍率预设</div>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {[0.5, 1.0, 1.5, 2.0, 4.0].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          className="ghost"
-                          style={{
-                            flex: 1,
-                            height: 22,
-                            fontSize: 10,
-                            padding: 0,
-                            borderColor: Math.abs(imgScale - preset) < 0.05 ? "var(--cyan)" : undefined,
-                            color: Math.abs(imgScale - preset) < 0.05 ? "var(--cyan)" : undefined,
-                          }}
-                          onClick={() => setImgScale(preset)}
-                        >
-                          {Math.round(preset * 100)}%
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="side-sec">
-                  <div className="side-h">辅助图层与 HUD</div>
-                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                    <input
-                      type="checkbox"
-                      checked={showImgCrosshair}
-                      onChange={(e) => setShowImgCrosshair(e.target.checked)}
-                    />
-                    显示中心瞄准准星与辅助角框
-                  </label>
-                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={showImgHudInfo}
-                      onChange={(e) => setShowImgHudInfo(e.target.checked)}
-                    />
-                    显示浮动水印与流状态信息
-                  </label>
-                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={imgSmooth}
-                      onChange={(e) => setImgSmooth(e.target.checked)}
-                    />
-                    双线性平滑插值渲染
-                  </label>
-                </div>
-
-                <div className="side-sec">
                   <div className="side-h">图传流诊断状态</div>
                   <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
                     <div>
@@ -1220,12 +1102,9 @@ export function DebugWorkbench({
                         {images[currentImgSel] ? "活跃传输中 (Active)" : "等待首帧数据..."}
                       </span>
                     </div>
-                    <div>
-                      视口位姿：
-                      <span className="mono" style={{ color: "var(--text-strong)" }}>
-                        {Math.round(imgScale * 100)}% · ({Math.round(imgPan.x)}, {Math.round(imgPan.y)})
-                      </span>
-                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--faint)", marginTop: 8, lineHeight: 1.5 }}>
+                    辅助图层与检测标注由下位机 SDK 或算法节点在图像发布端直接生成与叠加。
                   </div>
                 </div>
               </>
@@ -1548,13 +1427,6 @@ export function DebugWorkbench({
                     <ImagePane
                       sel={imgSel}
                       url={images[imgSel]}
-                      scale={clampedSelectedIdx === i ? imgScale : 1}
-                      onScaleChange={clampedSelectedIdx === i ? setImgScale : undefined}
-                      pan={clampedSelectedIdx === i ? imgPan : { x: 0, y: 0 }}
-                      onPanChange={clampedSelectedIdx === i ? setImgPan : undefined}
-                      showCrosshair={showImgCrosshair}
-                      showHud={showImgHudInfo}
-                      smooth={imgSmooth}
                     />
                   )}
                   {k === "3d" && (
@@ -1597,7 +1469,7 @@ export function DebugWorkbench({
             )}
             {activeKind === "image" && (
               <span>
-                视频流: {currentImgSel || "默认"} · 缩放: {Math.round(imgScale * 100)}% · 准星: {showImgCrosshair ? "开启" : "隐藏"} · 传输: {images[currentImgSel] ? "在线" : "等待数据"}
+                视频流: {currentImgSel || "默认"} · 状态: {images[currentImgSel] ? "活跃传输中" : "等待数据帧"}
               </span>
             )}
             {activeKind === "log" && (
@@ -1797,33 +1669,18 @@ function LogPane({
 function ImagePane({
   sel,
   url,
-  scale = 1,
-  onScaleChange,
-  pan = { x: 0, y: 0 },
-  onPanChange,
-  showCrosshair = true,
-  showHud = true,
-  smooth = true,
 }: {
   sel: string;
   url?: string;
-  scale?: number;
-  onScaleChange?: React.Dispatch<React.SetStateAction<number>>;
-  pan?: { x: number; y: number };
-  onPanChange?: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>;
-  showCrosshair?: boolean;
-  showHud?: boolean;
-  smooth?: boolean;
 }) {
-  const [localScale, setLocalScale] = useState(1);
-  const [localPan, setLocalPan] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
-  const curScale = scale !== undefined ? scale : localScale;
-  const setScale = onScaleChange || setLocalScale;
-
-  const curPan = pan !== undefined ? pan : localPan;
-  const setPan = onPanChange || setLocalPan;
+  useEffect(() => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }, [sel]);
 
   return (
     <div className="img-pane">
@@ -1833,9 +1690,13 @@ function ImagePane({
           e.preventDefault();
           setScale((s) => Math.min(15, Math.max(0.1, Number((s * (e.deltaY > 0 ? 0.9 : 1.1)).toFixed(2)))));
         }}
+        onDoubleClick={() => {
+          setScale(1);
+          setPan({ x: 0, y: 0 });
+        }}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
-          drag.current = { x: e.clientX, y: e.clientY, px: curPan.x, py: curPan.y };
+          drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
         }}
         onMouseMove={(e) => {
           if (!drag.current) return;
@@ -1852,79 +1713,18 @@ function ImagePane({
         }}
       >
         {url ? (
-          <>
-            <img
-              src={url}
-              alt=""
-              draggable={false}
-              style={{
-                transform: `translate(${curPan.x}px, ${curPan.y}px) scale(${curScale})`,
-                imageRendering: smooth ? "auto" : "pixelated",
-              }}
-            />
-            {/* Cyber Vision HUD Overlay */}
-            {showCrosshair && (
-              <div className="hud-crosshair">
-                <span className="hud-corner hud-corner-tl" />
-                <span className="hud-corner hud-corner-tr" />
-                <span className="hud-corner hud-corner-bl" />
-                <span className="hud-corner hud-corner-br" />
-              </div>
-            )}
-            {showHud && (
-              <>
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "10px",
-                    right: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    background: "rgba(0,0,0,0.65)",
-                    backdropFilter: "blur(8px)",
-                    padding: "3px 8px",
-                    borderRadius: "4px",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    fontSize: "11px",
-                    fontFamily: "var(--mono)",
-                    color: "var(--text-strong)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <span className="state-tag s-connected" style={{ fontSize: "10px", padding: "1px 6px" }}>
-                    STREAM ACTIVE
-                  </span>
-                  <span style={{ color: "var(--cyan)" }}>{sel}</span>
-                  <span style={{ color: "var(--faint)" }}>
-                    {curScale !== 1 ? `${Math.round(curScale * 100)}%` : "1:1"}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "10px",
-                    left: "12px",
-                    background: "rgba(0,0,0,0.65)",
-                    backdropFilter: "blur(8px)",
-                    padding: "3px 8px",
-                    borderRadius: "4px",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    fontSize: "10px",
-                    fontFamily: "var(--mono)",
-                    color: "var(--cyan)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  CAMERA HUD · 60 FPS STREAM
-                </div>
-              </>
-            )}
-          </>
+          <img
+            src={url}
+            alt=""
+            draggable={false}
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+            }}
+          />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "var(--muted)" }}>
             <span className="mono" style={{ fontSize: 13 }}>{sel ? `等待图像流数据: ${sel}…` : "暂未配置图像流通道"}</span>
-            <span style={{ fontSize: 11, color: "var(--faint)" }}>可在左侧设置栏选择活动视频流或检查发布节点</span>
+            <span style={{ fontSize: 11, color: "var(--faint)" }}>可在左侧设置栏选择活动视频流通道</span>
           </div>
         )}
       </div>
