@@ -127,6 +127,68 @@ export function DebugWorkbench({
   const [history, setHistory] = useState(60);
   const [fields, setFields] = useState<Record<string, { color: string; on: boolean }>>({});
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logLevels, setLogLevels] = useState<{ DEBUG: boolean; INFO: boolean; WARN: boolean; ERROR: boolean }>({
+    DEBUG: true,
+    INFO: true,
+    WARN: true,
+    ERROR: true,
+  });
+  const [logFilterText, setLogFilterText] = useState("");
+  const [logAutoScroll, setLogAutoScroll] = useState(true);
+  const [logShowTs, setLogShowTs] = useState(true);
+  const [maxLogBuffer, setMaxLogBuffer] = useState(2000);
+  const maxLogBufferRef = useRef(maxLogBuffer);
+  maxLogBufferRef.current = maxLogBuffer;
+
+  const logStats = useMemo(() => {
+    let debug = 0;
+    let info = 0;
+    let warn = 0;
+    let error = 0;
+    for (let i = 0; i < logs.length; i++) {
+      const lv = normLevel(logs[i].level);
+      if (lv === "DEBUG") debug++;
+      else if (lv === "INFO") info++;
+      else if (lv === "WARN") warn++;
+      else if (lv === "ERROR") error++;
+    }
+    return { debug, info, warn, error, total: logs.length };
+  }, [logs]);
+
+  const visibleLogCount = useMemo(() => {
+    let re: RegExp | null = null;
+    if (logFilterText.trim()) {
+      try {
+        re = new RegExp(logFilterText.trim(), "i");
+      } catch {
+        re = null;
+      }
+    }
+    const q = logFilterText.trim().toLowerCase();
+    return logs.filter((l) => {
+      if (!logLevels[normLevel(l.level) as keyof typeof logLevels]) return false;
+      if (!q) return true;
+      if (re) return re.test(l.msg) || re.test(l.level);
+      return l.msg.toLowerCase().includes(q) || normLevel(l.level).toLowerCase().includes(q);
+    }).length;
+  }, [logs, logLevels, logFilterText]);
+
+  const exportLogs = useCallback(() => {
+    if (logs.length === 0) return;
+    const content = logs
+      .map((l) => {
+        const ts = l.t != null ? `${l.t.toFixed(3)}s` : l.ts ? fmtTs(l.ts) : "";
+        return `[${ts}] [${normLevel(l.level)}] ${l.msg}`;
+      })
+      .join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `omniscope_logs_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [logs]);
   const [images, setImages] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<string[]>([]);
   const [manual, setManual] = useState(false);
@@ -242,7 +304,8 @@ export function DebugWorkbench({
       logBuf.current = [];
       setLogs((prev) => {
         const next = prev.concat(batch);
-        return next.length > 2000 ? next.slice(-1600) : next;
+        const limit = maxLogBufferRef.current || 2000;
+        return next.length > limit ? next.slice(-Math.floor(limit * 0.8)) : next;
       });
     }
     const pending = imgBuf.current;
@@ -594,42 +657,11 @@ export function DebugWorkbench({
         </button>
         {sidebar && (
           <div className="side-body">
-            <div className="side-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>
-                {activeKind === "plot" && "曲线绘图设置"}
-                {activeKind === "3d" && "3D 空间设置"}
-                {activeKind === "image" && "实时图像设置"}
-                {activeKind === "log" && "运行日志设置"}
-              </span>
-              <span
-                className="dev-tag"
-                style={{
-                  fontSize: "10px",
-                  padding: "1px 5px",
-                  borderRadius: 3,
-                  fontFamily: "var(--mono)",
-                  background:
-                    activeKind === "plot"
-                      ? "rgba(16, 185, 129, 0.15)"
-                      : activeKind === "3d"
-                      ? "rgba(0, 240, 255, 0.15)"
-                      : "rgba(255, 255, 255, 0.06)",
-                  color:
-                    activeKind === "plot"
-                      ? "var(--green)"
-                      : activeKind === "3d"
-                      ? "var(--cyan)"
-                      : "var(--muted)",
-                  border:
-                    activeKind === "plot"
-                      ? "1px solid rgba(16, 185, 129, 0.35)"
-                      : activeKind === "3d"
-                      ? "1px solid rgba(0, 240, 255, 0.35)"
-                      : "1px solid rgba(255, 255, 255, 0.12)",
-                }}
-              >
-                {activeKind === "plot" ? "已开发" : activeKind === "3d" ? "开发中" : "暂未开发"}
-              </span>
+            <div className="side-title">
+              {activeKind === "plot" && "曲线绘图设置"}
+              {activeKind === "3d" && "3D 空间设置"}
+              {activeKind === "image" && "实时图像设置"}
+              {activeKind === "log" && "运行日志设置"}
             </div>
 
             {/* Plot Context Settings */}
@@ -1033,17 +1065,167 @@ export function DebugWorkbench({
               </div>
             )}
 
-            {/* Undeveloped Log Context */}
+            {/* Log Context Settings */}
             {activeKind === "log" && (
-              <div className="side-sec">
-                <div className="dev-placeholder">
-                  <div className="dev-badge">功能暂未开发</div>
-                  <div className="dev-title">运行日志参数设置</div>
-                  <p className="dev-desc">
-                    日志级别正则过滤、关键词高亮与高频抑制、日志流限速与导出存档功能正在规划中。
-                  </p>
+              <>
+                <div className="side-sec">
+                  <div className="side-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>日志级别过滤</span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
+                        onClick={() => setLogLevels({ DEBUG: true, INFO: true, WARN: true, ERROR: true })}
+                      >
+                        全显
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: "0 6px", height: "18px", fontSize: "10px" }}
+                        onClick={() => setLogLevels({ DEBUG: false, INFO: false, WARN: true, ERROR: true })}
+                      >
+                        仅告警
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                    {(["DEBUG", "INFO", "WARN", "ERROR"] as const).map((k) => {
+                      const count = logStats[k.toLowerCase() as keyof typeof logStats] || 0;
+                      const col =
+                        k === "ERROR"
+                          ? "var(--err)"
+                          : k === "WARN"
+                          ? "var(--amber)"
+                          : k === "INFO"
+                          ? "var(--green)"
+                          : "var(--cyan)";
+                      return (
+                        <label
+                          key={k}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            fontSize: 11,
+                            padding: "2px 0",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input
+                              type="checkbox"
+                              checked={logLevels[k]}
+                              onChange={(e) => setLogLevels((p) => ({ ...p, [k]: e.target.checked }))}
+                            />
+                            <span className="mono" style={{ color: col, fontWeight: 600 }}>
+                              {k}
+                            </span>
+                          </div>
+                          <span
+                            className="mono"
+                            style={{
+                              fontSize: 10,
+                              color: "var(--muted)",
+                              background: "rgba(255, 255, 255, 0.05)",
+                              padding: "0 5px",
+                              borderRadius: 3,
+                            }}
+                          >
+                            {count}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+
+                <div className="side-sec">
+                  <div className="side-h">关键词 / 正则过滤</div>
+                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    <input
+                      style={{ flex: 1, fontSize: 11, height: 24, padding: "0 6px" }}
+                      placeholder="过滤消息文本或正则..."
+                      value={logFilterText}
+                      onChange={(e) => setLogFilterText(e.target.value)}
+                    />
+                    {logFilterText && (
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: "0 6px", height: 24, fontSize: 11 }}
+                        onClick={() => setLogFilterText("")}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--faint)", marginTop: 4 }}>
+                    支持普通字符串包含或 JavaScript 正则
+                  </div>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">终端显示设置</div>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={logAutoScroll}
+                      onChange={(e) => setLogAutoScroll(e.target.checked)}
+                    />
+                    接收新日志时自动贴底
+                  </label>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={logShowTs}
+                      onChange={(e) => setLogShowTs(e.target.checked)}
+                    />
+                    显示精确时间戳
+                  </label>
+                  <div style={{ marginTop: 6, fontSize: 11, color: "var(--muted)" }}>
+                    <div style={{ marginBottom: 4 }}>缓冲区容量</div>
+                    <select
+                      value={maxLogBuffer}
+                      onChange={(e) => setMaxLogBuffer(Number(e.target.value))}
+                      style={{ fontSize: 11, height: 24 }}
+                    >
+                      <option value={500}>500 行</option>
+                      <option value={1000}>1000 行</option>
+                      <option value={2000}>2000 行</option>
+                      <option value={5000}>5000 行</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">统计与导出</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8, lineHeight: 1.6 }}>
+                    <div>接收总量：<b className="mono" style={{ color: "var(--text-strong)" }}>{logs.length}</b> 行</div>
+                    <div>匹配显示：<b className="mono" style={{ color: "var(--cyan)" }}>{visibleLogCount}</b> 行</div>
+                    <div>告警统计：<span className="mono" style={{ color: "var(--amber)" }}>{logStats.warn} WARN</span> · <span className="mono" style={{ color: "var(--err)" }}>{logStats.error} ERROR</span></div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ width: "100%", height: 26, fontSize: 11 }}
+                      onClick={exportLogs}
+                    >
+                      导出日志文件 (.log)
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ width: "100%", height: 26, fontSize: 11, color: "var(--err)" }}
+                      onClick={() => setLogs([])}
+                    >
+                      清空终端日志
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -1066,35 +1248,6 @@ export function DebugWorkbench({
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 12 }}>
                     <span style={{ color: k === "3d" ? "var(--cyan)" : undefined }}>
                       {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : "运行日志"}
-                    </span>
-                    <span
-                      className="dev-tag"
-                      style={{
-                        fontSize: "10px",
-                        padding: "1px 5px",
-                        borderRadius: 3,
-                        fontFamily: "var(--mono)",
-                        background:
-                          k === "plot"
-                            ? "rgba(16, 185, 129, 0.15)"
-                            : k === "3d"
-                            ? "rgba(0, 240, 255, 0.15)"
-                            : "rgba(255, 255, 255, 0.06)",
-                        color:
-                          k === "plot"
-                            ? "var(--green)"
-                            : k === "3d"
-                            ? "var(--cyan)"
-                            : "var(--muted)",
-                        border:
-                          k === "plot"
-                            ? "1px solid rgba(16, 185, 129, 0.35)"
-                            : k === "3d"
-                            ? "1px solid rgba(0, 240, 255, 0.35)"
-                            : "1px solid rgba(255, 255, 255, 0.12)",
-                      }}
-                    >
-                      {k === "plot" ? "已开发" : k === "3d" ? "开发中" : "暂未开发"}
                     </span>
                   </div>
                   <select
@@ -1213,6 +1366,14 @@ export function DebugWorkbench({
                       lines={logs}
                       cursorT={replay ? cursorT : null}
                       onSeek={replay ? onSeek : undefined}
+                      levels={logLevels}
+                      onLevelsChange={setLogLevels}
+                      filterText={logFilterText}
+                      onFilterTextChange={setLogFilterText}
+                      autoScroll={logAutoScroll}
+                      showTs={logShowTs}
+                      onClear={() => setLogs([])}
+                      onExport={exportLogs}
                     />
                   )}
                   {k === "image" && (
@@ -1252,36 +1413,8 @@ export function DebugWorkbench({
         <footer className="workbench-statusbar">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span>当前视口:</span>
-            <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>
+            <span style={{ color: "var(--cyan)", fontWeight: 600 }}>
               {activeKind === "plot" ? "曲线绘图" : activeKind === "3d" ? "3D 空间视口" : activeKind === "image" ? "实时图像" : "运行日志"}
-            </span>
-            <span
-              className="dev-tag"
-              style={{
-                fontSize: "10px",
-                padding: "0 5px",
-                borderRadius: 3,
-                background:
-                  activeKind === "plot"
-                    ? "rgba(16, 185, 129, 0.15)"
-                    : activeKind === "3d"
-                    ? "rgba(0, 240, 255, 0.15)"
-                    : "rgba(255, 255, 255, 0.06)",
-                color:
-                  activeKind === "plot"
-                    ? "var(--green)"
-                    : activeKind === "3d"
-                    ? "var(--cyan)"
-                    : "var(--muted)",
-                border:
-                  activeKind === "plot"
-                    ? "1px solid rgba(16, 185, 129, 0.35)"
-                    : activeKind === "3d"
-                    ? "1px solid rgba(0, 240, 255, 0.35)"
-                    : "1px solid rgba(255, 255, 255, 0.12)",
-              }}
-            >
-              {activeKind === "plot" ? "已开发" : activeKind === "3d" ? "正在开发" : "暂未开发"}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--muted)", fontSize: 11 }}>
@@ -1296,10 +1429,12 @@ export function DebugWorkbench({
               </span>
             )}
             {activeKind === "image" && (
-              <span>视频通道: {panels[clampedSelectedIdx]?.imgSel || names[0] || "无信号"} · 图像配置暂未开发</span>
+              <span>视频通道: {panels[clampedSelectedIdx]?.imgSel || names[0] || "无信号"} · 图像配置规划中</span>
             )}
             {activeKind === "log" && (
-              <span>终端日志: {logs.length} 条 · 规则过滤暂未开发</span>
+              <span>
+                终端日志: {logs.length} 行 · 过滤匹配: {visibleLogCount} 行 · 告警: {logStats.warn + logStats.error} 条
+              </span>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--faint)" }}>
@@ -1315,16 +1450,58 @@ function LogPane({
   lines,
   cursorT = null,
   onSeek,
+  levels,
+  onLevelsChange,
+  filterText = "",
+  onFilterTextChange,
+  autoScroll = true,
+  showTs = true,
+  onClear,
+  onExport,
 }: {
   lines: LogLine[];
   cursorT?: number | null;
   onSeek?: (t: number) => void;
+  levels?: { DEBUG: boolean; INFO: boolean; WARN: boolean; ERROR: boolean };
+  onLevelsChange?: React.Dispatch<React.SetStateAction<{ DEBUG: boolean; INFO: boolean; WARN: boolean; ERROR: boolean }>>;
+  filterText?: string;
+  onFilterTextChange?: (txt: string) => void;
+  autoScroll?: boolean;
+  showTs?: boolean;
+  onClear?: () => void;
+  onExport?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
-  const [lv, setLv] = useState({ DEBUG: true, INFO: true, WARN: true, ERROR: true });
+  const [localLv, setLocalLv] = useState({ DEBUG: true, INFO: true, WARN: true, ERROR: true });
+  const [localFilter, setLocalFilter] = useState("");
   const [mark, setMark] = useState<{ y: number; kind: "line" | "gap" } | null>(null);
-  const visible = lines.filter((l) => lv[normLevel(l.level) as keyof typeof lv]);
+
+  const activeLv = levels || localLv;
+  const setLv = onLevelsChange || setLocalLv;
+  const activeFilter = filterText !== undefined ? filterText : localFilter;
+  const setFilter = onFilterTextChange || setLocalFilter;
+
+  const visible = useMemo(() => {
+    let re: RegExp | null = null;
+    const q = activeFilter.trim();
+    if (q) {
+      try {
+        re = new RegExp(q, "i");
+      } catch {
+        re = null;
+      }
+    }
+    const qLower = q.toLowerCase();
+
+    return lines.filter((l) => {
+      const lv = normLevel(l.level) as keyof typeof activeLv;
+      if (activeLv[lv] === false) return false;
+      if (!q) return true;
+      if (re) return re.test(l.msg) || re.test(lv);
+      return l.msg.toLowerCase().includes(qLower) || lv.toLowerCase().includes(qLower);
+    });
+  }, [lines, activeLv, activeFilter]);
 
   let current = -1;
   if (cursorT != null) {
@@ -1340,7 +1517,7 @@ function LogPane({
     const el = ref.current;
     if (!el) return;
     if (cursorT == null) {
-      if (stick.current) el.scrollTop = el.scrollHeight;
+      if (autoScroll && stick.current) el.scrollTop = el.scrollHeight;
       return;
     }
     const row = el.querySelector(".log-current") as HTMLElement | null;
@@ -1365,22 +1542,45 @@ function LogPane({
     } else {
       setMark(null);
     }
-  }, [visible.length, lines.length, cursorT, current]);
+  }, [visible.length, lines.length, cursorT, current, autoScroll]);
 
   return (
     <div className="log-pane">
-      <div className="log-toolbar">
-        {(["DEBUG", "INFO", "WARN", "ERROR"] as const).map((k) => (
-          <label key={k}>
-            <input
-              type="checkbox"
-              checked={lv[k]}
-              onChange={(e) => setLv((p) => ({ ...p, [k]: e.target.checked }))}
-            />
-            {k}
-          </label>
-        ))}
-        <span className="log-count">{visible.length}</span>
+      <div className="log-toolbar" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 10px", height: "auto", minHeight: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {(["DEBUG", "INFO", "WARN", "ERROR"] as const).map((k) => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
+              <input
+                type="checkbox"
+                checked={activeLv[k]}
+                onChange={(e) => setLv((p) => ({ ...p, [k]: e.target.checked }))}
+              />
+              <span className="mono">{k}</span>
+            </label>
+          ))}
+        </div>
+
+        <input
+          style={{ height: 22, fontSize: 11, padding: "0 6px", width: 130 }}
+          placeholder="快速搜索..."
+          value={activeFilter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+
+        <span className="log-count mono" style={{ fontSize: 11, color: "var(--cyan)", marginLeft: "auto" }}>
+          {visible.length} / {lines.length}
+        </span>
+
+        {onExport && (
+          <button type="button" className="ghost" style={{ height: 22, fontSize: 11, padding: "0 6px" }} onClick={onExport} title="导出当前日志为文本文件">
+            导出
+          </button>
+        )}
+        {onClear && (
+          <button type="button" className="ghost" style={{ height: 22, fontSize: 11, padding: "0 6px", color: "var(--err)" }} onClick={onClear} title="清空日志控制台">
+            清空
+          </button>
+        )}
       </div>
       <div className="log-stream-wrap">
         {mark?.kind === "gap" && <div className="log-tri" style={{ top: mark.y }} />}
@@ -1393,7 +1593,13 @@ function LogPane({
             stick.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
           }}
         >
-          {visible.length === 0 && <div className="log-line L-DEBUG"><span className="log-msg">无日志</span></div>}
+          {visible.length === 0 && (
+            <div className="log-line L-DEBUG">
+              <span className="log-msg mono" style={{ color: "var(--muted)" }}>
+                {lines.length === 0 ? "等待日志数据..." : "无符合过滤条件的日志"}
+              </span>
+            </div>
+          )}
           {visible.map((l, idx) => (
             <div
               key={idx}
@@ -1402,11 +1608,13 @@ function LogPane({
                 if (l.t != null) onSeek?.(l.t);
               }}
             >
-              {l.t != null ? (
-                <span className="log-ts">{l.t.toFixed(3)}s</span>
-              ) : l.ts ? (
-                <span className="log-ts">{fmtTs(l.ts)}</span>
-              ) : null}
+              {showTs && (
+                l.t != null ? (
+                  <span className="log-ts">{l.t.toFixed(3)}s</span>
+                ) : l.ts ? (
+                  <span className="log-ts">{fmtTs(l.ts)}</span>
+                ) : null
+              )}
               <span className="log-lv">{normLevel(l.level)}</span>
               <span className="log-msg">{l.msg}</span>
             </div>
