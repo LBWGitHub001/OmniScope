@@ -2,23 +2,14 @@
 
 include(CMakeFindDependencyMacro)
 
+# 只有 C++ 版本 (OmniScope::Cpp) 才需要这些依赖。
+# 仅链接 OmniScope::Embedded 的工程不会被强制查找 OpenCV / fmt / Eigen3 等。
 find_dependency(Threads)
-
-if(@OpenCV_FOUND@)
-  find_dependency(OpenCV COMPONENTS core imgcodecs imgproc)
-endif()
-
-if(@nlohmann_json_FOUND@)
-  find_dependency(nlohmann_json)
-endif()
-
-if(@fmt_FOUND@)
-  find_dependency(fmt)
-endif()
-
-if(@yaml-cpp_FOUND@)
-  find_dependency(yaml-cpp)
-endif()
+find_dependency(OpenCV COMPONENTS core imgcodecs imgproc calib3d highgui)
+find_dependency(fmt)
+find_dependency(nlohmann_json)
+find_dependency(yaml-cpp)
+find_dependency(Eigen3)
 
 include("${CMAKE_CURRENT_LIST_DIR}/OmniScopeTargets.cmake")
 

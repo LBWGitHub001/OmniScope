@@ -20,11 +20,11 @@
 
 ```
 OmniScope/
-├── sdk/                        # 【下位机组件库】嵌入式与机器人 C++ / C99 SDK
-│   ├── CMakeLists.txt          # 现代组件化 CMake 导出 (OmniScope::All / Logger / MCU / RMBag / Calibrator)
+├── sdk/                        # 【下位机组件库】C++ 版与嵌入式版 SDK（链接目标即版本）
+│   ├── CMakeLists.txt          # 顶层 CMake：add_subdirectory(cpp|embedded) 与安装导出
 │   ├── README.md               # 下位机 API 完整使用与组件文档
-│   ├── include/omniscope/      # 公共头文件体系 (<omniscope/omniscope.hpp>, marker.hpp 等)
-│   └── src/                    # 模块化私有实现 (logger/, mcu/, rmbag/, calibration/)
+│   ├── cpp/                    # C++ 版 OmniScope::Cpp：遥测/3D Marker/录放/标定 (include/ + src/)
+│   └── embedded/               # 嵌入式版 OmniScope::Embedded：纯 C99 SWD 邮箱与迹缓冲
 │
 ├── host/                       # 【上位机门户】统一现代化全栈调试看板 (Python + React)
 │   ├── start.sh                # 上位机服务一键启动入口脚本
@@ -170,11 +170,12 @@ cmake -B build && cmake --build build -j
 
 ## 📦 下位机 SDK 集成
 
-在外部机器人算法工程的 `CMakeLists.txt` 中引入：
+在外部机器人算法工程的 `CMakeLists.txt` 中引入（主机端链接 C++ 版，单片机固件链接嵌入式版）：
 
 ```cmake
 add_subdirectory(path/to/OmniScope/sdk)
-target_link_libraries(your_robot_node PRIVATE OmniScope::All)
+target_link_libraries(your_robot_node PRIVATE OmniScope::Cpp)      # 主机端 C++ 版
+# target_link_libraries(your_mcu_firmware PRIVATE OmniScope::Embedded) # 单片机嵌入式版
 ```
 
 在 C++ 代码中调用：

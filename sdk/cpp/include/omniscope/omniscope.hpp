@@ -3,24 +3,17 @@
 
 /**
  * @file omniscope.hpp
- * @brief OmniScope C++ & Embedded Client Master Header
+ * @brief OmniScope C++ Client Master Header
  *
  * Provides a clean, modern, zero-verbosity API for high-frequency remote debugging,
- * real-time waveform telemetry, ROS 2-compatible 3D visualization markers,
- * image streaming, and MCU SWD memory watching.
+ * real-time waveform telemetry, ROS 2-compatible 3D visualization markers, and
+ * image streaming. For the bare-metal / RTOS mailbox and trace buffer, use the
+ * embedded SDK (<omniscope/mcu/mailbox.h>, target OmniScope::Embedded) instead.
  */
 
 #include "omniscope/logger.hpp"
 #include "omniscope/remote_logger.hpp"
 #include "omniscope/marker.hpp"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "omniscope/mcu/mailbox.h"
-#ifdef __cplusplus
-}
-#endif
 
 namespace omniscope
 {
