@@ -1,9 +1,25 @@
-"""SWD Live Memory Monitor feature — connects via OpenOCD telnet without halting MCU."""
+"""SWD Live Memory Monitor feature — connects via OpenOCD telnet without halting MCU.
+
+Beyond the legacy manual nm-symbol watch, this feature auto-discovers the
+OmniScope embedded structures (sdk/embedded: plot.h / watch.h / mailbox.h)
+via well-known ELF symbols and serves them under a bandwidth scheduler:
+
+    priority 1: parameter entries      -> read at 1 Hz
+    priority 2: monitor scalars (+nm)  -> read every tick (hz, default 30)
+    priority 3: plot FIFO drain        -> idle time, adaptive batch
+    priority 4: array payload fetch    -> idle time, version-gated chunks
+
+A rolling 1-second byte meter caps total SWD traffic at `rate_limit_bps`;
+low-priority work is skipped once the budget is exhausted.
+"""
 
 from __future__ import annotations
 
+import base64
 import json
 import queue
+import struct
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -11,19 +27,37 @@ from urllib.parse import parse_qs
 
 from ..http.sse import SSEQueue, write_sse
 from ..swd.client import (
+    ACCESS_RW,
+    BLOCK_CHUNK_BYTES,
     DEFAULT_HOST,
     DEFAULT_HZ,
     DEFAULT_SYMBOL,
+    KIND_PARAM,
+    PLOT_HEADER_SIZE,
+    PLOT_MAX_CHANNELS,
+    PLOT_CHANNEL_SIZE,
+    PLOT_POINT_SIZE,
+    PLOT_POINTS_OFFSET,
+    WATCH_HEADER_SIZE,
+    WATCH_ENTRY_SIZE,
+    WATCH_MAX_ENTRIES,
     OpenOcdTelnet,
     Stats,
     _f32,
     _i32,
     _u32,
     candidate_ports,
+    decode_scalar,
+    encode_scalar,
     find_latest_elf,
     list_data_symbols,
     mdw_watch,
     mww_write,
+    parse_plot_channels,
+    parse_plot_header,
+    parse_plot_points,
+    parse_watch_table,
+    read_block,
     resolve_symbol,
     tcp_open,
 )
@@ -32,6 +66,17 @@ from ..swd.serial_link import SerialLink, parse_hex_payload
 from .base import Feature, json_body, send_json
 
 MAX_SYMBOLS = 8
+
+# Well-known firmware globals (sdk/embedded + radar user/omniscope_debug.c)
+SYM_PLOT = "g_omniscope_plot"
+SYM_WATCH = "g_omniscope_watch"
+SYM_MAILBOX = "g_omniscope_mailbox"
+
+MAX_ARRAY_BYTES = 256 * 1024      # refuse larger array payloads over telnet
+PLOT_MAX_BATCH = 256              # points drained per tick at most
+DEFAULT_RATE_LIMIT_BPS = 8192     # total SWD payload budget per second
+TABLE_RELOAD_S = 2.0              # watch table re-read period
+PARAM_PERIOD_S = 1.0              # parameter entries refresh period (1 Hz)
 
 
 class SwdFeature(Feature):
@@ -44,6 +89,7 @@ class SwdFeature(Feature):
         self.sse = SSEQueue()
         self._clients: List[SSEQueue] = []
         self._swd_lock = self._lock
+        self._io_lock = threading.Lock()  # serialize telnet traffic (run loop vs HTTP handlers)
 
         # Default project fallback: check if ../radar or ./ exists
         default_proj = Path.cwd().parent / "radar"
@@ -61,6 +107,26 @@ class SwdFeature(Feature):
         self.latest: Dict[str, dict] = {}
         self.stats = Stats()
 
+        # --- OmniScope embedded discovery / scheduler state ---
+        self.rate_limit_bps = DEFAULT_RATE_LIMIT_BPS
+        self._meter: List[tuple] = []  # (monotonic_ts, payload_bytes)
+        self.plot_addr: Optional[int] = None
+        self.watch_addr: Optional[int] = None
+        self.mailbox_addr: Optional[int] = None
+        self.plot_ok = False
+        self.watch_ok = False
+        self.plot_channels: List[dict] = []
+        self.plot_last_seq = 0
+        self.plot_dropped = 0
+        self.plot_fifo_size = 0
+        self.watch_table: Optional[dict] = None
+        self.watch_values: Dict[str, dict] = {}
+        self.array_versions: Dict[str, int] = {}
+        self.array_fetch: Optional[dict] = None
+        self._param_due = 0.0
+        self._table_due = 0.0
+        self._state_due = 0.0
+
         log_dir = Path.cwd() / "logs" / "swd"
         self.recorder = Recorder(log_dir)
         self.serial = SerialLink(self.publish)
@@ -75,6 +141,9 @@ class SwdFeature(Feature):
         shell.route(p + "/symbols/remove", self._handle_symbols_remove, methods=("POST",))
         shell.route(p + "/symbols/write", self._handle_symbols_write, methods=("POST",))
         shell.route(p + "/mailbox/write", self._handle_mailbox_write, methods=("POST",))
+        shell.route(p + "/watch/table", self._handle_watch_table)
+        shell.route(p + "/watch/array", self._handle_watch_array)
+        shell.route(p + "/watch/write", self._handle_watch_write, methods=("POST",))
         shell.route(p + "/settings", self._handle_settings, methods=("POST",))
         shell.route(p + "/serial/ports", self._handle_serial_ports)
         shell.route(p + "/serial/open", self._handle_serial_open, methods=("POST",))
@@ -96,11 +165,48 @@ class SwdFeature(Feature):
         if "telnet_port" in config:
             tp = config["telnet_port"]
             self.telnet_port = int(tp) if tp not in (None, "", 0) else None
+        if "rate_limit_bps" in config:
+            try:
+                self.rate_limit_bps = int(config["rate_limit_bps"])
+            except (TypeError, ValueError):
+                pass
 
     def on_stop(self):
         self.recorder.stop()
         self.serial.close()
 
+    # ------------------------------------------------------------------
+    # Bandwidth meter
+    # ------------------------------------------------------------------
+    def _meter_add(self, nbytes: int) -> None:
+        now = time.monotonic()
+        self._meter.append((now, nbytes))
+        cutoff = now - 1.0
+        self._meter = [(t, n) for (t, n) in self._meter if t >= cutoff]
+
+    def _meter_bps(self) -> float:
+        now = time.monotonic()
+        return float(sum(n for (t, n) in self._meter if t >= now - 1.0))
+
+    def _budget_ok(self, nbytes: int) -> bool:
+        return self._meter_bps() + nbytes <= self.rate_limit_bps
+
+    # ------------------------------------------------------------------
+    # Serialized telnet I/O helpers (metered)
+    # ------------------------------------------------------------------
+    def _io_read(self, addr: int, nbytes: int) -> bytes:
+        with self._io_lock:
+            return read_block(self._client, addr, nbytes, on_bytes=self._meter_add)
+
+    def _io_mww(self, addr: int, val, fmt: str = "u32") -> int:
+        with self._io_lock:
+            r = mww_write(self._client, addr, val, fmt)
+        self._meter_add(4)
+        return r
+
+    # ------------------------------------------------------------------
+    # SSE / state
+    # ------------------------------------------------------------------
     def publish(self, event: dict) -> None:
         line = json.dumps(event, ensure_ascii=False)
         self.sse.put(line)
@@ -111,6 +217,10 @@ class SwdFeature(Feature):
                 q.put(line)
             except Exception:
                 pass
+
+    @staticmethod
+    def _hex(addr: Optional[int]) -> Optional[str]:
+        return f"0x{addr:08X}" if addr is not None else None
 
     def snapshot(self) -> dict:
         with self._swd_lock:
@@ -129,6 +239,18 @@ class SwdFeature(Feature):
                     "hz": round(self.stats.hz(), 2),
                     "rtt_p50": round(self.stats.percentile(50), 2),
                     "rtt_p95": round(self.stats.percentile(95), 2),
+                },
+                "rate_limit_bps": self.rate_limit_bps,
+                "bps_used": round(self._meter_bps(), 1),
+                "omniscope": {
+                    "plot_addr": self._hex(self.plot_addr),
+                    "watch_addr": self._hex(self.watch_addr),
+                    "mailbox_addr": self._hex(self.mailbox_addr),
+                    "plot_ok": self.plot_ok,
+                    "watch_ok": self.watch_ok,
+                    "plot_channels": list(self.plot_channels),
+                    "plot_dropped": self.plot_dropped,
+                    "watch_count": len(self.watch_table["entries"]) if self.watch_table else 0,
                 },
                 "recording": bool(self.recorder and self.recorder.active),
                 "log": self.recorder.path.name if self.recorder and self.recorder.path else "",
@@ -160,6 +282,11 @@ class SwdFeature(Feature):
             if "telnet_port" in body:
                 port = body["telnet_port"]
                 self.telnet_port = int(port) if port not in (None, "", 0) else None
+            if "rate_limit_bps" in body and body["rate_limit_bps"] is not None:
+                bps = int(body["rate_limit_bps"])
+                if bps < 512 or bps > 1048576:
+                    raise ValueError("rate_limit_bps must be in [512, 1048576]")
+                self.rate_limit_bps = bps
         self.publish({"type": "state", **self.snapshot()})
 
     def add_symbol(self, name: str) -> None:
@@ -213,6 +340,211 @@ class SwdFeature(Feature):
         if self.recorder is not None:
             self.recorder.write({"kind": "sample", **row})
 
+    # ------------------------------------------------------------------
+    # OmniScope embedded: discovery, probe, tick phases
+    # ------------------------------------------------------------------
+    def _resolve_well_known(self, elf: Path) -> None:
+        addrs = {"plot": None, "watch": None, "mailbox": None}
+        for key, sym in (("plot", SYM_PLOT), ("watch", SYM_WATCH), ("mailbox", SYM_MAILBOX)):
+            try:
+                addr, _size = resolve_symbol(elf, sym)
+                addrs[key] = addr
+            except RuntimeError:
+                pass
+        with self._swd_lock:
+            self.plot_addr = addrs["plot"]
+            self.watch_addr = addrs["watch"]
+            self.mailbox_addr = addrs["mailbox"]
+            self.plot_ok = False
+            self.watch_ok = False
+            self.plot_channels = []
+            self.plot_last_seq = 0
+            self.plot_dropped = 0
+            self.watch_table = None
+            self.array_fetch = None
+
+    def _probe_omniscope(self) -> None:
+        """Validate magics and load channel/table descriptors (retried until ok)."""
+        if self.plot_addr is not None and not self.plot_ok:
+            try:
+                hdr = parse_plot_header(self._io_read(self.plot_addr, PLOT_HEADER_SIZE))
+            except RuntimeError:
+                hdr = {"valid": False}
+            if hdr["valid"]:
+                raw = self._io_read(self.plot_addr + PLOT_HEADER_SIZE,
+                                    PLOT_MAX_CHANNELS * PLOT_CHANNEL_SIZE)
+                channels = parse_plot_channels(raw, hdr["channel_count"])
+                with self._swd_lock:
+                    self.plot_ok = True
+                    self.plot_channels = channels
+                    self.plot_fifo_size = hdr["fifo_size"] or 1
+                    # start at the live edge; history before connect is dropped
+                    self.plot_last_seq = hdr["write_seq"]
+                self.publish({"type": "state", **self.snapshot()})
+
+        if self.watch_addr is not None and (not self.watch_ok or time.monotonic() >= self._table_due):
+            try:
+                raw = self._io_read(self.watch_addr,
+                                    WATCH_HEADER_SIZE + WATCH_ENTRY_SIZE * WATCH_MAX_ENTRIES)
+                table = parse_watch_table(raw)
+            except RuntimeError:
+                table = {"valid": False}
+            if table.get("valid"):
+                first = not self.watch_ok
+                with self._swd_lock:
+                    self.watch_ok = True
+                    self.watch_table = table
+                    self._table_due = time.monotonic() + TABLE_RELOAD_S
+                self.publish({"type": "watch_table", "entries": table["entries"]})
+                if first:
+                    self.publish({"type": "state", **self.snapshot()})
+
+    def _tick_params(self, now: float) -> None:
+        """Priority 1: parameter entries at 1 Hz."""
+        if not self.watch_ok or now < self._param_due:
+            return
+        self._param_due = now + PARAM_PERIOD_S
+        table = self.watch_table or {}
+        for e in table.get("entries", []):
+            if e["kind"] != KIND_PARAM or e["is_array"]:
+                continue
+            self._read_watch_scalar(e)
+
+    def _tick_monitors(self) -> None:
+        """Priority 2: monitor scalars every tick; array version probes."""
+        if not self.watch_ok:
+            return
+        table = self.watch_table or {}
+        for e in table.get("entries", []):
+            if e["kind"] == KIND_PARAM:
+                continue
+            if e["is_array"]:
+                # version-gated: only the 4-byte version word is read here
+                try:
+                    ver_addr = self.watch_addr + WATCH_HEADER_SIZE + e["index"] * WATCH_ENTRY_SIZE + 36
+                    ver = struct.unpack("<I", self._io_read(ver_addr, 4))[0]
+                except RuntimeError:
+                    continue
+                e["version"] = ver
+                if ver != self.array_versions.get(e["name"], None) and self.array_fetch is None:
+                    if e["nbytes"] <= MAX_ARRAY_BYTES:
+                        self.array_fetch = {"entry": dict(e), "offset": 0,
+                                            "buf": bytearray(), "version": ver}
+                continue
+            self._read_watch_scalar(e)
+
+    def _read_watch_scalar(self, e: dict) -> None:
+        try:
+            raw = self._io_read(e["ptr"], e["elem_size"])
+            value = decode_scalar(e["elem_type"], raw)
+        except RuntimeError as exc:
+            self.note_error(e["name"], str(exc))
+            return
+        row = {
+            "type": "watch_sample",
+            "name": e["name"],
+            "value": value,
+            "kind": e["kind"],
+            "elem_name": e["elem_name"],
+            "t": time.time(),
+        }
+        with self._swd_lock:
+            self.watch_values[e["name"]] = row
+        self.publish(row)
+
+    def _tick_plot(self) -> None:
+        """Priority 3: drain plot FIFO with leftover budget (adaptive batch)."""
+        if not self.plot_ok or not self._budget_ok(PLOT_HEADER_SIZE):
+            return
+        try:
+            hdr = parse_plot_header(self._io_read(self.plot_addr, PLOT_HEADER_SIZE))
+        except RuntimeError:
+            return
+        if not hdr["valid"]:
+            with self._swd_lock:
+                self.plot_ok = False  # firmware re-initialized; re-probe
+            return
+        new = hdr["write_seq"] - self.plot_last_seq
+        if new <= 0:
+            return
+        fifo = hdr["fifo_size"] or 1
+        skipped = 0
+        start = self.plot_last_seq
+        if new > fifo:
+            skipped = new - fifo
+            start = hdr["write_seq"] - fifo
+            new = fifo
+        budget_bytes = max(0, int(self.rate_limit_bps - self._meter_bps()))
+        batch = min(new, PLOT_MAX_BATCH, budget_bytes // PLOT_POINT_SIZE)
+        if batch <= 0:
+            return
+
+        base = self.plot_addr + PLOT_POINTS_OFFSET
+        first_idx = start % fifo
+        first_cnt = min(batch, fifo - first_idx)
+        points: List[tuple] = []
+        try:
+            raw1 = self._io_read(base + first_idx * PLOT_POINT_SIZE, first_cnt * PLOT_POINT_SIZE)
+            points.extend(parse_plot_points(raw1, first_cnt))
+            rest = batch - first_cnt
+            if rest > 0:  # wrapped around the ring end
+                raw2 = self._io_read(base, rest * PLOT_POINT_SIZE)
+                points.extend(parse_plot_points(raw2, rest))
+        except RuntimeError:
+            return
+
+        consumed = start + len(points)
+        try:
+            self._io_mww(self.plot_addr + 12, consumed, "u32")  # publish read_seq
+        except RuntimeError:
+            pass
+        with self._swd_lock:
+            self.plot_last_seq = consumed
+            self.plot_dropped += skipped
+            dropped = self.plot_dropped
+        self.publish({
+            "type": "swd_plot",
+            "channels": {c["index"]: c["name"] for c in self.plot_channels},
+            "points": [[ch, ts, val] for (_seq, ch, ts, val) in points],
+            "dropped": dropped,
+        })
+
+    def _tick_array(self) -> None:
+        """Priority 4: one payload chunk per tick for the in-progress array fetch."""
+        fetch = self.array_fetch
+        if fetch is None:
+            return
+        if not self._budget_ok(BLOCK_CHUNK_BYTES):
+            return
+        entry = fetch["entry"]
+        remaining = entry["nbytes"] - fetch["offset"]
+        chunk = min(BLOCK_CHUNK_BYTES, remaining)
+        try:
+            data = self._io_read(entry["ptr"] + fetch["offset"], chunk)
+        except RuntimeError:
+            self.array_fetch = None
+            return
+        fetch["buf"].extend(data)
+        fetch["offset"] += len(data)
+        if fetch["offset"] >= entry["nbytes"]:
+            self.array_versions[entry["name"]] = fetch["version"]
+            self.array_fetch = None
+            self.publish({
+                "type": "watch_array",
+                "name": entry["name"],
+                "rows": entry["rows"],
+                "cols": entry["cols"],
+                "elem_type": entry["elem_type"],
+                "min": entry["min"],
+                "max": entry["max"],
+                "nbytes": entry["nbytes"],
+                "b64": base64.b64encode(bytes(fetch["buf"])).decode("ascii"),
+                "t": time.time(),
+            })
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
     def run(self, stop_event):
         while not stop_event.is_set():
             cfg = self.snapshot()
@@ -255,28 +587,47 @@ class SwdFeature(Feature):
                                     except RuntimeError as exc:
                                         self.note_error(name, str(exc))
                                 elf_key = key
+                                self._resolve_well_known(elf)
 
-                            if not self.symbols:
-                                self.set_phase("idle", "OpenOCD 已连接，添加一个符号开始监视")
-                                stop_event.wait(0.4)
-                                continue
+                            # OmniScope structures: magic probe / table reload
+                            try:
+                                self._probe_omniscope()
+                            except (OSError, ConnectionError, TimeoutError):
+                                raise
+                            except Exception:
+                                pass
 
                             if self.phase != "streaming":
                                 self.set_phase("streaming", f"正在读取 {cfg['host']}:{port}")
 
+                            now = time.monotonic()
                             try:
-                                for name in self.symbols:
-                                    if name not in resolved:
-                                        continue
-                                    addr, size = resolved[name]
-                                    try:
-                                        sample = mdw_watch(client, addr, size, name)
-                                    except RuntimeError as exc:
-                                        self.note_error(name, str(exc))
-                                        fail_streak += 1
-                                        continue
-                                    self.note_sample(sample)
-                                    fail_streak = 0
+                                # priority 1: parameters @1Hz
+                                self._tick_params(now)
+                                # priority 2: monitor scalars + array version probes
+                                self._tick_monitors()
+
+                                # legacy manual nm symbols (same priority tier)
+                                if self.symbols:
+                                    for name in self.symbols:
+                                        if name not in resolved:
+                                            continue
+                                        addr, size = resolved[name]
+                                        try:
+                                            with self._io_lock:
+                                                sample = mdw_watch(client, addr, size, name)
+                                            self._meter_add(size)
+                                        except RuntimeError as exc:
+                                            self.note_error(name, str(exc))
+                                            fail_streak += 1
+                                            continue
+                                        self.note_sample(sample)
+                                        fail_streak = 0
+
+                                # priority 3: plot FIFO drain (idle budget)
+                                self._tick_plot()
+                                # priority 4: array payload chunk (idle budget)
+                                self._tick_array()
                             except (OSError, ConnectionError, TimeoutError) as exc:
                                 self.set_phase("reconnecting", str(exc))
                                 break
@@ -292,6 +643,11 @@ class SwdFeature(Feature):
                                     break
                                 continue
 
+                            # publish bandwidth stats ~1 Hz
+                            if t_loop >= self._state_due:
+                                self._state_due = t_loop + 1.0
+                                self.publish({"type": "state", **self.snapshot()})
+
                             spent = time.monotonic() - t_loop
                             stop_event.wait(max(0.0, interval - spent))
                     finally:
@@ -301,6 +657,9 @@ class SwdFeature(Feature):
                 self.set_phase("reconnecting", str(exc))
             stop_event.wait(0.5)
 
+    # ------------------------------------------------------------------
+    # HTTP handlers
+    # ------------------------------------------------------------------
     def _handle_events(self, handler):
         q = SSEQueue()
         with self._swd_lock:
@@ -442,7 +801,9 @@ class SwdFeature(Feature):
                     elf = find_latest_elf(Path(self.project))
                     addr, _ = resolve_symbol(elf, name)
 
-                val_int = mww_write(client, addr, value, fmt)
+                with self._io_lock:
+                    val_int = mww_write(client, addr, value, fmt)
+                self._meter_add(4)
             except Exception as e:
                 send_json(handler, {"ok": False, "error": str(e)}, code=500)
                 return
@@ -471,12 +832,119 @@ class SwdFeature(Feature):
                 base_addr = int(str(mb_addr_in), 16) if str(mb_addr_in).startswith("0x") else int(mb_addr_in)
                 # params[slot] is located at base_addr + 16 + slot * 4
                 slot_addr = base_addr + 16 + slot * 4
-                mww_write(client, slot_addr, value, "f32")
-                # mark status dirty (OMNISCOPE_STATUS_HOST_DIRTY = 0x01)
-                mww_write(client, base_addr + 12, 1, "u32")
+                with self._io_lock:
+                    mww_write(client, slot_addr, value, "f32")
+                    # mark status dirty (OMNISCOPE_STATUS_HOST_DIRTY = 0x01)
+                    mww_write(client, base_addr + 12, 1, "u32")
+                self._meter_add(8)
             except Exception as e:
                 send_json(handler, {"ok": False, "error": str(e)}, code=500)
                 return
 
         send_json(handler, {"ok": True, "slot": slot, "value": value})
 
+    # ------------------------------------------------------------------
+    # Watch table / parameter handlers
+    # ------------------------------------------------------------------
+    def _public_watch(self) -> dict:
+        table = self.watch_table or {"entries": []}
+        return {
+            "ok": True,
+            "valid": bool(self.watch_ok),
+            "entries": table.get("entries", []),
+            "values": self.watch_values,
+        }
+
+    def _handle_watch_table(self, handler):
+        send_json(handler, self._public_watch())
+
+    def _handle_watch_array(self, handler):
+        name = (handler.query.get("name") or [""])[0] if handler.query else ""
+        table = self.watch_table or {}
+        entry = next((e for e in table.get("entries", []) if e["name"] == name), None)
+        if entry is None:
+            send_json(handler, {"ok": False, "error": f"未找到监视项 {name}"}, code=404)
+            return
+        if not entry["is_array"]:
+            send_json(handler, {"ok": False, "error": "目标不是数组项"}, code=400)
+            return
+        if entry["nbytes"] > MAX_ARRAY_BYTES:
+            send_json(handler, {"ok": False, "error": f"数组过大 ({entry['nbytes']}B > {MAX_ARRAY_BYTES}B)"}, code=400)
+            return
+        with self._swd_lock:
+            client = getattr(self, "_client", None)
+        if client is None or client.sock is None:
+            send_json(handler, {"ok": False, "error": "OpenOCD SWD 未连接"}, code=503)
+            return
+        try:
+            data = self._io_read(entry["ptr"], entry["nbytes"])
+        except Exception as exc:
+            send_json(handler, {"ok": False, "error": str(exc)}, code=500)
+            return
+        send_json(handler, {
+            "ok": True,
+            "name": entry["name"],
+            "rows": entry["rows"],
+            "cols": entry["cols"],
+            "elem_type": entry["elem_type"],
+            "min": entry["min"],
+            "max": entry["max"],
+            "nbytes": entry["nbytes"],
+            "b64": base64.b64encode(data).decode("ascii"),
+        })
+
+    def _handle_watch_write(self, handler):
+        body = json_body(handler)
+        name = str(body.get("name", "")).strip()
+        value = body.get("value")
+        if value is None:
+            send_json(handler, {"ok": False, "error": "value is required"}, code=400)
+            return
+        table = self.watch_table or {}
+        entry = next((e for e in table.get("entries", []) if e["name"] == name), None)
+        if entry is None:
+            send_json(handler, {"ok": False, "error": f"未找到监视项 {name}"}, code=404)
+            return
+        # Permission gate: only RW parameter scalars may be written.
+        if entry["kind"] != KIND_PARAM or entry["access"] != ACCESS_RW or entry["is_array"]:
+            send_json(handler, {"ok": False, "error": "只读监视项，禁止写入"}, code=403)
+            return
+
+        v = float(value)
+        vmin, vmax, vstep = entry["min"], entry["max"], entry["step"]
+        if vmax > vmin:
+            v = min(max(v, vmin), vmax)
+        if vstep > 0:
+            v = round(v / vstep) * vstep
+
+        with self._swd_lock:
+            client = getattr(self, "_client", None)
+        if client is None or client.sock is None:
+            send_json(handler, {"ok": False, "error": "OpenOCD SWD 未连接"}, code=503)
+            return
+
+        try:
+            data = encode_scalar(entry["elem_type"], v)
+            if len(data) == 4:
+                word = struct.unpack("<I", data)[0]
+                self._io_mww(entry["ptr"], word, "u32")
+            else:
+                # sub-word read-modify-write on the aligned containing word
+                base = entry["ptr"] & ~0x3
+                off = entry["ptr"] - base
+                merged = bytearray(self._io_read(base, 4))
+                merged[off:off + len(data)] = data
+                self._io_mww(base, struct.unpack("<I", bytes(merged))[0], "u32")
+        except Exception as exc:
+            send_json(handler, {"ok": False, "error": str(exc)}, code=500)
+            return
+
+        self.publish({
+            "type": "watch_sample",
+            "name": entry["name"],
+            "value": v,
+            "kind": entry["kind"],
+            "elem_name": entry["elem_name"],
+            "t": time.time(),
+        })
+        send_json(handler, {"ok": True, "name": name, "value": v})

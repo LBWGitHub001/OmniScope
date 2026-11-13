@@ -64,3 +64,9 @@ host/
 - Replay：在页面输入 `.rlog` 绝对/相对路径后点「加载」。
 - Dump：导出目录含 `log.txt` / `plot.txt` / `images.mp4`。
 - 标定：车上 `./build/calibrate`（beacon `app=calibrate`），首页车辆列表点进去即可。
+
+## SWD 页（OpenOCD 非侵入式调试）
+- 固件用 `sdk/embedded` 的 `plot.h` / `watch.h`（header-only）声明 `g_omniscope_plot` / `g_omniscope_watch` 全局结构后，SWD 页自动发现并启用：plot 通道波形、固件监视表（只读标量 + 大数组热图）、参数滑杆调参（mww 直写、范围钳制、1Hz 回显）。
+- 带宽调度：`参数(1Hz) > 监视标量(默认30Hz) > plot 排空(空闲) > 大数组(空闲+版本门控)`；总额度由「参数设置 → 速率限制 (B/s)」调节，默认 8192 B/s，状态栏显示实时用量与 plot 丢点。
+- 监视项一律只读（写入请求被 403 拒绝）；只有 `omniscope_watch_register_param` 注册的参数项可写。
+- Mailbox 16 槽调参面板的基地址按 `g_omniscope_mailbox` 符号自动填充，也可手动覆盖。

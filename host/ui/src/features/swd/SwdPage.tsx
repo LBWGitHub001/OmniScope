@@ -47,6 +47,18 @@ type SwdSnapshot = {
     rtt_p50: number;
     rtt_p95: number;
   };
+  rate_limit_bps?: number;
+  bps_used?: number;
+  omniscope?: {
+    plot_addr?: string | null;
+    watch_addr?: string | null;
+    mailbox_addr?: string | null;
+    plot_ok?: boolean;
+    watch_ok?: boolean;
+    plot_channels?: { index: number; name: string; active: boolean }[];
+    plot_dropped?: number;
+    watch_count?: number;
+  };
   recording?: boolean;
   log?: string;
 };
@@ -57,6 +69,120 @@ type ElfMatch = {
   size: number;
   file?: string;
 };
+
+// --- OmniScope watch table (firmware-declared) ---
+type WatchEntry = {
+  index: number;
+  name: string;
+  ptr: number;
+  elem_type: number;
+  elem_name: string;
+  elem_size: number;
+  kind: number; // 0=monitor 1=param
+  access: number; // 0=RO 1=RW
+  rows: number;
+  cols: number;
+  version: number;
+  min: number;
+  max: number;
+  step: number;
+  is_array: boolean;
+  nbytes: number;
+};
+
+type WatchArrayPayload = {
+  rows: number;
+  cols: number;
+  elemType: number;
+  min: number;
+  max: number;
+  values: ArrayLike<number>;
+  t: number;
+};
+
+function decodeArrayPayload(elemType: number, b64: string): ArrayLike<number> {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const buf = bytes.buffer;
+  switch (elemType) {
+    case 0: return new Float32Array(buf, 0, Math.floor(bytes.length / 4));
+    case 1: return new Int32Array(buf, 0, Math.floor(bytes.length / 4));
+    case 2: return new Uint32Array(buf, 0, Math.floor(bytes.length / 4));
+    case 3: return new Int16Array(buf, 0, Math.floor(bytes.length / 2));
+    case 4: return new Uint16Array(buf, 0, Math.floor(bytes.length / 2));
+    case 5: return new Int8Array(buf, 0, bytes.length);
+    default: return new Uint8Array(buf, 0, bytes.length);
+  }
+}
+
+function fmtHex(addr: number): string {
+  return "0x" + (addr >>> 0).toString(16).toUpperCase().padStart(8, "0");
+}
+
+/** 2D matrix heatmap / 1D bar view for array watch entries. */
+function ArrayView({ payload }: { payload: WatchArrayPayload }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { rows, cols, values } = payload;
+    const n = rows * cols;
+    let lo = payload.min;
+    let hi = payload.max;
+    if (!(hi > lo)) {
+      lo = Infinity;
+      hi = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = values[i] ?? 0;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      if (!(hi > lo)) { lo = 0; hi = 1; }
+    }
+    if (rows > 1) {
+      const cell = Math.max(2, Math.min(24, Math.floor(340 / cols)));
+      const w = cell * cols;
+      const h = cell * rows;
+      canvas.width = w;
+      canvas.height = h;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const v = values[y * cols + x] ?? 0;
+          const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+          ctx.fillStyle = `hsl(${Math.round((1 - t) * 240)}, 90%, ${28 + t * 32}%)`;
+          ctx.fillRect(x * cell, y * cell, cell - 1, cell - 1);
+        }
+      }
+    } else {
+      const count = cols;
+      const w = 340;
+      const h = 90;
+      canvas.width = w;
+      canvas.height = h;
+      ctx.fillStyle = "rgba(5, 6, 9, 1)";
+      ctx.fillRect(0, 0, w, h);
+      const bw = Math.max(1, w / count - 1);
+      for (let i = 0; i < count; i++) {
+        const v = values[i] ?? 0;
+        const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+        const bh = Math.max(1, t * (h - 6));
+        ctx.fillStyle = `hsl(${Math.round((1 - t) * 240)}, 85%, 55%)`;
+        ctx.fillRect(i * (w / count), h - bh, bw, bh);
+      }
+    }
+  }, [payload]);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <canvas ref={ref} style={{ display: "block", imageRendering: "pixelated", borderRadius: 4, border: "1px solid var(--hairline)" }} />
+      <div className="mono" style={{ fontSize: 10, color: "var(--faint)", marginTop: 4 }}>
+        色标 [{payload.min !== 0 || payload.max !== 0 ? `${payload.min} ~ ${payload.max}` : "自适应"}] · 版本门控·空闲刷新
+      </div>
+    </div>
+  );
+}
 
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
   if (!data || data.length < 2) {
@@ -124,6 +250,20 @@ export function SwdPage() {
   const [mailboxAddr, setMailboxAddr] = useState("0x20000000");
   const [mailboxParams, setMailboxParams] = useState<number[]>(new Array(16).fill(0));
 
+  // OmniScope firmware watch table / params / swd plot state
+  const [showParams, setShowParams] = useState(false);
+  const [watchEntries, setWatchEntries] = useState<WatchEntry[]>([]);
+  const [watchValues, setWatchValues] = useState<Record<string, { value: number; t: number }>>({});
+  const [watchArrays, setWatchArrays] = useState<Record<string, WatchArrayPayload>>({});
+  const [arrayExpanded, setArrayExpanded] = useState<Record<string, boolean>>({});
+  const [paramDraft, setParamDraft] = useState<Record<string, number>>({});
+  const [paramStatus, setParamStatus] = useState<Record<string, "ok" | "err">>({});
+  const [plotChNames, setPlotChNames] = useState<Record<number, string>>({});
+  const [plotDropped, setPlotDropped] = useState(0);
+  const [plotPlotted, setPlotPlotted] = useState<Record<string, boolean>>({});
+  const plotHistoryRef = useRef<Record<string, { t: number; v: number }[]>>({});
+  const [rateLimitInput, setRateLimitInput] = useState(8192);
+
 
   // Settings form state
   const [projectInput, setProjectInput] = useState("");
@@ -156,14 +296,33 @@ export function SwdPage() {
     getJson<SwdSnapshot>(`${base}/snapshot`).then((st) => {
       setSnap(st);
       setProjectInput(st.project || "");
-      setHzInput(st.hz || 20);
+      setHzInput(st.hz || 30);
       setHostInput(st.host || "127.0.0.1");
       setPortInput(st.telnet_port ? String(st.telnet_port) : "");
+      if (st.rate_limit_bps) setRateLimitInput(st.rate_limit_bps);
+      if (st.omniscope?.mailbox_addr) setMailboxAddr(st.omniscope.mailbox_addr);
+      if (st.omniscope?.plot_channels) {
+        const names: Record<number, string> = {};
+        const toggles: Record<string, boolean> = {};
+        st.omniscope.plot_channels.forEach((c) => {
+          names[c.index] = c.name;
+          toggles[c.name] = true;
+        });
+        setPlotChNames(names);
+        setPlotPlotted((prev) => ({ ...toggles, ...prev }));
+      }
       const p: Record<string, boolean> = {};
       st.symbols?.forEach((s) => {
         p[s.name] = true;
       });
       setPlotted(p);
+    }).catch(() => {});
+    // Firmware watch table (in case it was probed before this page opened)
+    getJson<{ entries?: WatchEntry[]; values?: Record<string, { value: number; t: number }> }>(
+      `${base}/watch/table`
+    ).then((res) => {
+      if (res.entries) setWatchEntries(res.entries);
+      if (res.values) setWatchValues(res.values);
     }).catch(() => {});
   }, [base]);
 
@@ -210,7 +369,67 @@ export function SwdPage() {
   useSSE(`${base}/events`, (ev) => {
     const typ = ev.type as string;
     if (typ === "state") {
-      setSnap(ev as unknown as SwdSnapshot);
+      const st = ev as unknown as SwdSnapshot;
+      setSnap(st);
+      if (st.omniscope?.mailbox_addr) {
+        setMailboxAddr((cur) => (cur === "0x20000000" ? st.omniscope!.mailbox_addr! : cur));
+      }
+      if (st.omniscope?.plot_channels) {
+        const names: Record<number, string> = {};
+        st.omniscope.plot_channels.forEach((c) => {
+          names[c.index] = c.name;
+        });
+        setPlotChNames((prev) => ({ ...prev, ...names }));
+      }
+      if (typeof st.omniscope?.plot_dropped === "number") setPlotDropped(st.omniscope.plot_dropped);
+    } else if (typ === "swd_plot") {
+      const p = ev as { channels: Record<string, string>; points: [number, number, number][]; dropped?: number };
+      if (p.channels) {
+        setPlotChNames((prev) => {
+          const next = { ...prev };
+          Object.entries(p.channels).forEach(([k, v]) => {
+            next[Number(k)] = v;
+          });
+          return next;
+        });
+      }
+      if (typeof p.dropped === "number") setPlotDropped(p.dropped);
+      if (!isPaused && Array.isArray(p.points)) {
+        const now = Date.now() / 1000;
+        p.points.forEach(([ch, _ts, val]) => {
+          const name = p.channels?.[String(ch)] ?? `ch${ch}`;
+          if (!Number.isFinite(val)) return;
+          if (!plotHistoryRef.current[name]) plotHistoryRef.current[name] = [];
+          const arr = plotHistoryRef.current[name];
+          arr.push({ t: now, v: val });
+          if (arr.length > 600) arr.shift();
+        });
+      }
+    } else if (typ === "watch_table") {
+      const wt = ev as { entries?: WatchEntry[] };
+      setWatchEntries(wt.entries || []);
+    } else if (typ === "watch_sample") {
+      const ws = ev as { name: string; value: number; kind?: number; t?: number };
+      const now = ws.t || Date.now() / 1000;
+      setWatchValues((prev) => ({ ...prev, [ws.name]: { value: ws.value, t: now } }));
+      if (Number.isFinite(ws.value)) {
+        const key = `watch:${ws.name}`;
+        if (!historyRef.current[key]) historyRef.current[key] = [];
+        const arr = historyRef.current[key];
+        arr.push({ t: now, v: ws.value });
+        if (arr.length > 300) arr.shift();
+      }
+    } else if (typ === "watch_array") {
+      const wa = ev as { name: string; rows: number; cols: number; elem_type: number; min: number; max: number; b64: string; t?: number };
+      try {
+        const values = decodeArrayPayload(wa.elem_type, wa.b64);
+        setWatchArrays((prev) => ({
+          ...prev,
+          [wa.name]: { rows: wa.rows, cols: wa.cols, elemType: wa.elem_type, min: wa.min, max: wa.max, values, t: wa.t || Date.now() / 1000 },
+        }));
+      } catch {
+        /* ignore malformed payload */
+      }
     } else if (typ === "sample") {
       const s = ev as unknown as SymbolRow;
       setSnap((prev) => {
@@ -305,7 +524,7 @@ export function SwdPage() {
     let animId = 0;
     const updateChart = () => {
       const symbols = snap?.symbols || [];
-      const datasets = symbols
+      const datasets: any[] = symbols
         .filter((s) => plotted[s.name] !== false)
         .map((s, idx) => {
           const hist = historyRef.current[s.name] || [];
@@ -348,6 +567,26 @@ export function SwdPage() {
           });
         });
 
+      // Firmware SWD plot channels (OMNISCOPE_PLOT push FIFO)
+      Object.keys(plotHistoryRef.current).forEach((name, idx) => {
+        if (plotPlotted[name] === false) return;
+        const hist = plotHistoryRef.current[name] || [];
+        if (hist.length === 0) return;
+        const t0 = hist[0]?.t || 0;
+        const color = COLORS[(idx + 4) % COLORS.length];
+        datasets.push({
+          label: `plot:${name}`,
+          borderColor: color,
+          backgroundColor: "transparent",
+          borderWidth: 1.6,
+          borderDash: [2, 2],
+          pointRadius: 0,
+          fill: false,
+          tension: 0.15,
+          data: hist.map((pt) => ({ x: pt.t - t0, y: pt.v })),
+        });
+      });
+
       chart.data.datasets = datasets;
       chart.update("none");
       animId = requestAnimationFrame(updateChart);
@@ -360,7 +599,7 @@ export function SwdPage() {
       chart.destroy();
       chartInstanceRef.current = null;
     };
-  }, [snap?.symbols, plotted, formulas]);
+  }, [snap?.symbols, plotted, formulas, plotPlotted]);
 
   // Actions
   const writeSymbol = async (name: string, val: string, fmt: string) => {
@@ -466,6 +705,7 @@ export function SwdPage() {
         hz: hzInput,
         host: hostInput.trim(),
         telnet_port: portInput.trim() ? Number(portInput.trim()) : null,
+        rate_limit_bps: rateLimitInput,
       });
       setSnap(res);
       setShowSettings(false);
@@ -476,7 +716,33 @@ export function SwdPage() {
 
   const clearChart = () => {
     historyRef.current = {};
+    plotHistoryRef.current = {};
     setSparklines({});
+  };
+
+  const writeParam = async (entry: WatchEntry, rawVal: number) => {
+    try {
+      const res = await postJson<{ ok: boolean; value?: number; error?: string }>(`${base}/watch/write`, {
+        name: entry.name,
+        value: rawVal,
+      });
+      if (!res.ok) throw new Error(res.error || "写入失败");
+      setParamStatus((prev) => ({ ...prev, [entry.name]: "ok" }));
+      if (typeof res.value === "number") {
+        setParamDraft((prev) => ({ ...prev, [entry.name]: res.value as number }));
+        setWatchValues((prev) => ({ ...prev, [entry.name]: { value: res.value as number, t: Date.now() / 1000 } }));
+      }
+      setTimeout(() => {
+        setParamStatus((prev) => {
+          const next = { ...prev };
+          delete next[entry.name];
+          return next;
+        });
+      }, 2000);
+    } catch (e) {
+      alert(`参数 ${entry.name} 写入失败: ${e}`);
+      setParamStatus((prev) => ({ ...prev, [entry.name]: "err" }));
+    }
   };
 
   const toggleSerial = async () => {
@@ -564,6 +830,29 @@ export function SwdPage() {
           <span>{snap?.stats?.hz || 0} Hz · {snap?.stats?.rtt_p50 || 0}ms RTT</span>
         </div>
 
+        {/* SWD bandwidth meter */}
+        <div
+          className="status-pill"
+          title={`SWD 传输速率限制: ${snap?.rate_limit_bps || 0} B/s (参数1Hz > 监视${snap?.hz || 30}Hz > plot/数组空闲)`}
+        >
+          <span
+            className="pulse-dot"
+            style={(snap?.bps_used || 0) > (snap?.rate_limit_bps || 1) * 0.9 ? { background: "var(--amber)" } : undefined}
+          />
+          <span>
+            {snap?.bps_used || 0}/{snap?.rate_limit_bps || 0} B/s
+            {plotDropped > 0 && <span style={{ color: "var(--amber)", marginLeft: 6 }}>丢点 {plotDropped}</span>}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          className="ghost"
+          style={{ fontSize: "12px", padding: "4px 10px", color: showParams ? "var(--green)" : undefined }}
+          onClick={() => setShowParams(!showParams)}
+        >
+          参数调节 {watchEntries.filter((e) => e.kind === 1).length > 0 && `(${watchEntries.filter((e) => e.kind === 1).length})`}
+        </button>
         <button
           type="button"
           className="ghost"
@@ -606,7 +895,7 @@ export function SwdPage() {
             background: "var(--surface-2)",
             borderBottom: "1px solid var(--border)",
             display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr 1fr auto",
+            gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr auto",
             gap: "12px",
             alignItems: "center",
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
@@ -657,9 +946,123 @@ export function SwdPage() {
               onChange={(e) => setPortInput(e.target.value)}
             />
           </div>
+          <div>
+            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
+              速率限制 (B/s)
+            </label>
+            <input
+              type="number"
+              min={512}
+              max={1048576}
+              style={{ width: "100%", fontSize: "12px" }}
+              value={rateLimitInput}
+              onChange={(e) => setRateLimitInput(Number(e.target.value))}
+            />
+          </div>
           <button type="button" className="primary" style={{ alignSelf: "flex-end", height: "32px" }} onClick={saveSettings}>
             应用变更
           </button>
+        </div>
+      )}
+
+      {/* OmniScope Parameter Tuning Drawer (firmware-declared params, 1Hz echo) */}
+      {showParams && (
+        <div
+          style={{
+            padding: "14px 20px",
+            background: "rgba(12, 20, 18, 0.98)",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--green)" }}>
+              固件参数实时调节 (omniscope_watch · 滑杆直写 mww · 1Hz 回显)
+            </span>
+            <span className="mono" style={{ fontSize: "11px", color: "var(--muted)" }}>
+              {snap?.omniscope?.watch_ok ? `已发现 ${watchEntries.filter((e) => e.kind === 1).length} 个参数` : "等待固件监视表…"}
+            </span>
+          </div>
+
+          {watchEntries.filter((e) => e.kind === 1).length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--faint)", padding: "8px 0" }}>
+              固件未注册参数项。在代码中调用 omniscope_watch_register_param() 注册后自动出现。
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "10px" }}>
+            {watchEntries
+              .filter((e) => e.kind === 1)
+              .map((e) => {
+                const cur = watchValues[e.name]?.value ?? 0;
+                const draft = paramDraft[e.name] ?? cur;
+                const hasRange = e.max > e.min;
+                const status = paramStatus[e.name];
+                return (
+                  <div
+                    key={e.name}
+                    style={{
+                      background: "rgba(0,0,0,0.35)",
+                      border: `1px solid ${status === "ok" ? "var(--green)" : status === "err" ? "var(--err)" : "var(--hairline)"}`,
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      transition: "border-color 0.3s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 600, color: "var(--green)" }}>{e.name}</span>
+                      <span className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>
+                        {e.elem_name} · {fmtHex(e.ptr)} · 可写
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {hasRange && (
+                        <input
+                          type="range"
+                          style={{ flex: 1 }}
+                          min={e.min}
+                          max={e.max}
+                          step={e.step > 0 ? e.step : (e.max - e.min) / 100}
+                          value={draft}
+                          onChange={(ev) => setParamDraft((prev) => ({ ...prev, [e.name]: Number(ev.target.value) }))}
+                          onPointerUp={() => writeParam(e, paramDraft[e.name] ?? cur)}
+                          onKeyUp={(ev) => {
+                            if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") writeParam(e, paramDraft[e.name] ?? cur);
+                          }}
+                        />
+                      )}
+                      <input
+                        type="number"
+                        className="mono"
+                        style={{ width: 90, fontSize: 12, padding: "2px 4px" }}
+                        min={hasRange ? e.min : undefined}
+                        max={hasRange ? e.max : undefined}
+                        step={e.step > 0 ? e.step : undefined}
+                        value={draft}
+                        onChange={(ev) => setParamDraft((prev) => ({ ...prev, [e.name]: Number(ev.target.value) }))}
+                        onBlur={() => writeParam(e, paramDraft[e.name] ?? cur)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter") writeParam(e, paramDraft[e.name] ?? cur);
+                        }}
+                      />
+                      <span className="mono" style={{ fontSize: 11, color: "var(--muted)", minWidth: 64, textAlign: "right" }}>
+                        回显 {cur.toFixed(3)}
+                      </span>
+                    </div>
+                    {hasRange && (
+                      <div className="mono" style={{ fontSize: 9, color: "var(--faint)", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                        <span>{e.min}</span>
+                        <span>step {e.step > 0 ? e.step : "free"}</span>
+                        <span>{e.max}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
         </div>
       )}
 
@@ -919,6 +1322,102 @@ export function SwdPage() {
             )}
           </div>
 
+          {/* Firmware Watch Table (OmniScope auto-discovered) */}
+          {watchEntries.length > 0 && (
+            <div style={{ borderBottom: "1px solid var(--border)", maxHeight: "46%", overflowY: "auto", padding: "10px" }}>
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "var(--faint)",
+                  padding: "2px 4px 8px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                }}
+              >
+                <span>固件监视表 ({watchEntries.length})</span>
+                <span style={{ color: snap?.omniscope?.watch_ok ? "var(--green)" : "var(--amber)" }}>
+                  {snap?.omniscope?.watch_ok ? "已连接" : "探测中"}
+                </span>
+              </div>
+
+              {watchEntries.map((e) => {
+                if (e.kind === 1) return null; // params live in the tuning drawer
+                const isArr = e.is_array;
+                const val = watchValues[e.name]?.value;
+                const arrPayload = watchArrays[e.name];
+                const expanded = arrayExpanded[e.name] ?? isArr;
+                return (
+                  <div
+                    key={e.name}
+                    style={{
+                      background: "rgba(14, 18, 26, 0.75)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span className="mono" style={{ fontWeight: 600, color: "var(--cyan)", fontSize: 12 }}>
+                        {e.name}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          padding: "1px 6px",
+                          borderRadius: 3,
+                          background: "rgba(255,255,255,0.06)",
+                          color: "var(--muted)",
+                        }}
+                      >
+                        只读
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                      {isArr ? (
+                        <>
+                          <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                            {e.elem_name}[{e.rows}×{e.cols}] · {e.nbytes}B
+                            {arrPayload && <span style={{ color: "var(--green)", marginLeft: 6 }}>已更新</span>}
+                          </span>
+                          <button
+                            type="button"
+                            className="ghost"
+                            style={{ fontSize: 10, padding: "1px 8px" }}
+                            onClick={() => setArrayExpanded((prev) => ({ ...prev, [e.name]: !expanded }))}
+                          >
+                            {expanded ? "收起" : "热图"}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="mono" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-strong)" }}>
+                            {val !== undefined ? (Number.isInteger(val) ? val : Number(val).toFixed(4)) : "---"}
+                          </span>
+                          <MiniSparkline
+                            data={(historyRef.current[`watch:${e.name}`] || []).slice(-25).map((p) => p.v)}
+                            color="var(--cyan)"
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div className="mono" style={{ fontSize: 9, color: "var(--faint)", marginTop: 4 }}>
+                      {e.elem_name} · {fmtHex(e.ptr)}
+                      {isArr && " · 版本门控·空闲刷新"}
+                    </div>
+                    {isArr && expanded && arrPayload && <ArrayView payload={arrPayload} />}
+                    {isArr && expanded && !arrPayload && (
+                      <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 6 }}>等待空闲带宽拉取…</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Active Watched Symbols List */}
           <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
             <div
@@ -1130,13 +1629,38 @@ export function SwdPage() {
               background: "rgba(10, 12, 18, 0.8)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-strong)" }}>
                 实时发光示波器 (Oscilloscope)
               </span>
               <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }}>
                 · 滚屏波形实时渲染
               </span>
+              {Object.values(plotChNames).length > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+                  <span style={{ fontSize: 10, color: "var(--faint)" }}>固件plot:</span>
+                  {Object.entries(plotChNames).map(([idx, name], i) => (
+                    <label
+                      key={idx}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        fontSize: 10,
+                        color: COLORS[(i + 4) % COLORS.length],
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={plotPlotted[name] !== false}
+                        onChange={(ev) => setPlotPlotted((prev) => ({ ...prev, [name]: ev.target.checked }))}
+                      />
+                      {name}
+                    </label>
+                  ))}
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button

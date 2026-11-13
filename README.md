@@ -107,8 +107,12 @@ OmniScope/
 - 实时 JPEG 压缩图传，毫秒级网络回传机器人相机第一视角。
 - 支持平视显示准星（HUD）、目标包围盒与角点自动提取的单目相机内参标定。
 
-### 6. 非侵入式 SWD 变量监视与热整定 (SWD Hardware Probe)
+### 6. 非侵入式 SWD 变量监视、plot 推送与参数热整定 (SWD Hardware Probe)
 - 基于 OpenOCD Telnet 通讯，无需 halt CPU 即可在 MCU 运行时以 20~50Hz 周期读取/写入全局变量与结构体内存快照。
+- **固件声明、上位机自动发现**：嵌入式版 `plot.h` / `watch.h`（均 header-only `static inline`，零依赖零 .c 文件）在 SRAM 声明带魔数的调试结构，门户经 ELF 符号 `g_omniscope_plot` / `g_omniscope_watch` / `g_omniscope_mailbox` 自动接入，无需手填地址。
+- **plot 命名通道推送 FIFO**：固件调用 `OMNISCOPE_PLOT("gimbal.yaw", val)` 即写入 16 通道 × 512 点环形 FIFO，上位机按单调序号排空进示波器，固件侧统计丢点、上位机回读 `read_seq` 确认。
+- **watch 统一监视/参数表**：代码注册 `{名字, 指针, 类型, 权限, 维度, 版本号}`；监视项默认只读（UI 无写入入口、后端 403 拦截），支持雷达回波矩阵等大型数组的版本号门控分块拉取与热图渲染；参数项（RW + min/max/step）渲染滑杆调参面板，mww 直写并范围钳制，1Hz 回显。
+- **带宽调度器**：可配置总速率限制（默认 8 KB/s，滚动窗口统计），硬优先级 `参数(1Hz) > 监视标量(30Hz 可调) > plot 排空(空闲) > 大数组 payload(空闲)`，状态栏实时显示 B/s 用量与丢点计数。
 
 ### 7. 会话录放与离线转码 (.rlog RMBag Replay & Dump)
 - 高性能二进制记录引擎，纳秒级对齐。

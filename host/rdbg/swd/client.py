@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4444
 DEFAULT_SYMBOL = "aRGB"
-DEFAULT_HZ = 20.0
+DEFAULT_HZ = 30.0
 DEFAULT_BYTES = 4
 MAX_READ_BYTES = 64
 CCM_WARN_LO = 0x10000000
@@ -414,4 +414,181 @@ def mww_write(client: OpenOcdTelnet, addr: int, val: int | float | str, fmt: str
     if any(k in resp.lower() for k in ("error", "fail", "unable", "invalid")):
         raise RuntimeError(f"mww write failed: {resp}")
     return val_int
+
+
+# ---------------------------------------------------------------------------
+# OmniScope embedded structures (sdk/embedded/include/omniscope/mcu/)
+# Offsets mirror the C layout locks (_Static_assert) on 32-bit targets.
+# ---------------------------------------------------------------------------
+
+PLOT_MAGIC = 0x4F4D504C          # "OMPL"
+PLOT_VERSION = 1
+PLOT_HEADER_SIZE = 28            # magic..channel_count (7 words)
+PLOT_MAX_CHANNELS = 16
+PLOT_CHANNEL_SIZE = 28           # name[24] + active u32
+PLOT_POINT_SIZE = 16             # seq, ts_us, channel, value
+PLOT_POINTS_OFFSET = PLOT_HEADER_SIZE + PLOT_MAX_CHANNELS * PLOT_CHANNEL_SIZE  # 476
+
+WATCH_MAGIC = 0x4F4D5754         # "OMWT"
+WATCH_VERSION = 1
+WATCH_HEADER_SIZE = 16           # magic, version, count, capacity
+WATCH_MAX_ENTRIES = 32
+WATCH_ENTRY_SIZE = 52
+WATCH_NAME_LEN = 24
+
+# omniscope_watch_entry_t.kind
+KIND_MONITOR = 0
+KIND_PARAM = 1
+# omniscope_watch_entry_t.access
+ACCESS_RO = 0
+ACCESS_RW = 1
+
+# elem_type -> (struct fmt char, size in bytes)
+ELEM_TYPES: Dict[int, Tuple[str, int]] = {
+    0: ("f", 4),  # OMNISCOPE_TYPE_F32
+    1: ("i", 4),  # OMNISCOPE_TYPE_I32
+    2: ("I", 4),  # OMNISCOPE_TYPE_U32
+    3: ("h", 2),  # OMNISCOPE_TYPE_I16
+    4: ("H", 2),  # OMNISCOPE_TYPE_U16
+    5: ("b", 1),  # OMNISCOPE_TYPE_I8
+    6: ("B", 1),  # OMNISCOPE_TYPE_U8
+}
+ELEM_TYPE_NAMES = {0: "f32", 1: "i32", 2: "u32", 3: "i16", 4: "u16", 5: "i8", 6: "u8"}
+
+BLOCK_CHUNK_BYTES = 256
+
+
+def read_block(client: OpenOcdTelnet, addr: int, nbytes: int,
+               chunk_bytes: int = BLOCK_CHUNK_BYTES,
+               on_bytes=None) -> bytes:
+    """Read an arbitrary-size memory block via chunked mdw (payload bytes only).
+
+    on_bytes: optional callback invoked with the payload byte count of every
+    chunk, used by the bandwidth scheduler to meter traffic.
+    """
+    if nbytes <= 0:
+        return b""
+    total_words = (nbytes + 3) // 4
+    words: List[int] = []
+    done = 0
+    while done < total_words:
+        n = min(total_words - done, max(1, chunk_bytes // 4))
+        resp, _ = client.cmd(f"mdw 0x{addr + done * 4:08X} {n}")
+        words.extend(parse_mdw(resp, n))
+        done += n
+        if on_bytes is not None:
+            on_bytes(n * 4)
+    return struct.pack("<" + "I" * len(words), *words)[:nbytes]
+
+
+def parse_plot_header(data: bytes) -> dict:
+    if len(data) < PLOT_HEADER_SIZE:
+        raise RuntimeError("plot header short read")
+    magic, version, write_seq, read_seq, dropped, fifo_size, channel_count = struct.unpack_from("<7I", data)
+    return {
+        "magic": magic,
+        "valid": magic == PLOT_MAGIC,
+        "version": version,
+        "write_seq": write_seq,
+        "read_seq": read_seq,
+        "dropped": dropped,
+        "fifo_size": fifo_size,
+        "channel_count": min(channel_count, PLOT_MAX_CHANNELS),
+    }
+
+
+def parse_plot_channels(data: bytes, count: int) -> List[dict]:
+    channels: List[dict] = []
+    for i in range(min(count, PLOT_MAX_CHANNELS)):
+        off = i * PLOT_CHANNEL_SIZE
+        if len(data) < off + PLOT_CHANNEL_SIZE:
+            break
+        raw = data[off:off + 24].split(b"\x00", 1)[0]
+        active = struct.unpack_from("<I", data, off + 24)[0]
+        channels.append({
+            "index": i,
+            "name": raw.decode("utf-8", errors="replace"),
+            "active": bool(active),
+        })
+    return channels
+
+
+def parse_plot_points(data: bytes, count: int) -> List[Tuple[int, int, int, float]]:
+    """Decode points as (seq, channel, ts_us, value) tuples."""
+    pts: List[Tuple[int, int, int, float]] = []
+    for i in range(count):
+        off = i * PLOT_POINT_SIZE
+        if len(data) < off + PLOT_POINT_SIZE:
+            break
+        seq, ts_us, channel, value = struct.unpack_from("<3If", data, off)
+        pts.append((seq, channel, ts_us, value))
+    return pts
+
+
+def _decode_name(raw: bytes) -> str:
+    return raw.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+
+
+def parse_watch_table(data: bytes) -> dict:
+    if len(data) < WATCH_HEADER_SIZE:
+        raise RuntimeError("watch table header short read")
+    magic, version, count, capacity = struct.unpack_from("<4I", data)
+    entries: List[dict] = []
+    n = min(count, WATCH_MAX_ENTRIES)
+    for i in range(n):
+        off = WATCH_HEADER_SIZE + i * WATCH_ENTRY_SIZE
+        if len(data) < off + WATCH_ENTRY_SIZE:
+            break
+        name = _decode_name(data[off:off + WATCH_NAME_LEN])
+        ptr = struct.unpack_from("<I", data, off + 24)[0]
+        elem_type, kind, access, _flags = struct.unpack_from("<4B", data, off + 28)
+        rows, cols = struct.unpack_from("<2H", data, off + 32)
+        ver = struct.unpack_from("<I", data, off + 36)[0]
+        vmin, vmax, vstep = struct.unpack_from("<3f", data, off + 40)
+        etype = ELEM_TYPES.get(elem_type)
+        entries.append({
+            "index": i,
+            "name": name,
+            "ptr": ptr,
+            "elem_type": elem_type,
+            "elem_name": ELEM_TYPE_NAMES.get(elem_type, "?"),
+            "elem_size": etype[1] if etype else 0,
+            "kind": kind,
+            "access": access,
+            "rows": rows,
+            "cols": cols,
+            "version": ver,
+            "min": vmin,
+            "max": vmax,
+            "step": vstep,
+            "is_array": rows * cols > 1,
+            "nbytes": (etype[1] if etype else 0) * rows * cols,
+        })
+    return {
+        "magic": magic,
+        "valid": magic == WATCH_MAGIC,
+        "version": version,
+        "count": n,
+        "capacity": capacity,
+        "entries": entries,
+    }
+
+
+def decode_scalar(elem_type: int, data: bytes, offset: int = 0):
+    fmt_size = ELEM_TYPES.get(elem_type)
+    if not fmt_size:
+        raise RuntimeError(f"unknown elem_type {elem_type}")
+    return struct.unpack_from("<" + fmt_size[0], data, offset)[0]
+
+
+def encode_scalar(elem_type: int, value) -> bytes:
+    fmt_size = ELEM_TYPES.get(elem_type)
+    if not fmt_size:
+        raise RuntimeError(f"unknown elem_type {elem_type}")
+    fmt, _size = fmt_size
+    if fmt == "f":
+        value = float(value)
+    else:
+        value = int(float(value))
+    return struct.pack("<" + fmt, value)
 
