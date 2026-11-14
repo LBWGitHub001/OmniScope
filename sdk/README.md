@@ -100,15 +100,10 @@ int main() {
 
 ```c
 #define OMNISCOPE_PLOT_TIMESTAMP_US() (HAL_GetTick() * 1000U)
-#include <omniscope/mcu/plot.h>
-#include <omniscope/mcu/watch.h>
-
-omniscope_plot_t g_omniscope_plot;          /* 约定符号名, 上位机自动发现 */
-omniscope_watch_table_t g_omniscope_watch;
+#include <omniscope/mcu/instances.h>   /* 内含 plot.h / watch.h / mailbox.h, SDK 预定义共享实例 */
 
 int main(void) {
-    omniscope_plot_init(&g_omniscope_plot);
-    omniscope_watch_init(&g_omniscope_watch);
+    omniscope_embedded_init();          /* 一键初始化 g_omniscope_* 四个实例 (约定符号名, 上位机自动发现) */
     while (1) {
         OMNISCOPE_PLOT(&g_omniscope_plot, "gimbal.yaw", yaw_deg);
     }

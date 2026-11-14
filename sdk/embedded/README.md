@@ -16,6 +16,7 @@
   - [3.3 seqlock 原子快照](#33-seqlock-原子快照)
   - [3.4 plot 命名通道推送（header-only）](#34-plot-命名通道推送header-only)
   - [3.5 watch 监视与参数表（header-only）](#35-watch-监视与参数表header-only)
+  - [3.6 共享全局实例](#36-共享全局实例)
 - [4. 综合示例（一段代码覆盖全部 API）](#4-综合示例一段代码覆盖全部-api)
 - [5. 与上位机配合](#5-与上位机配合)
 - [6. 构建集成](#6-构建集成)
@@ -44,8 +45,11 @@ flowchart LR
 | 原子快照 | `omniscope/mcu/mailbox.h` | `src/mailbox.c` | SeqLock 多变量一致性快照 |
 | 命名通道推送 | `omniscope/mcu/plot.h` | header-only | 16 命名通道 × 512 点 FIFO，调用即"发送" |
 | 监视与参数表 | `omniscope/mcu/watch.h` | header-only | 32 项统一表：只读监视 + 大数组 + 滑杆参数 |
+| 共享全局实例 | `omniscope/mcu/instances.h` | `src/instances.c`（weak） | 预定义 `g_omniscope_*` 四实例 + 一键初始化 |
 
 所有结构体均带 `magic` + `version` 头，内存布局用 `_Static_assert` 锁死，上位机 Python 解码器按相同偏移解析。
+
+**共享实例**：`src/instances.c` 以 weak 符号预定义 `g_omniscope_mailbox / g_omniscope_trace / g_omniscope_plot / g_omniscope_watch`（合计约 15.6KB SRAM）。应用只需 `#include <omniscope/mcu/instances.h>` 并调用 `omniscope_embedded_init()`，无需自行定义变量；完全不引用时该目标文件不被静态链接拉入（零 SRAM 开销）；需自定义放置（如 CCMRAM）可在应用侧定义同名强符号覆盖。符号名为上位机自动发现约定，**不要重命名**。
 
 ## 2. 核心功能
 
@@ -348,6 +352,37 @@ static inline uint8_t omniscope_type_size(uint8_t elem_type);
 
 **Returns** — 类型字节数（1/2/4），非法类型返回 0。
 
+### 3.6 共享全局实例
+
+```c
+#include <omniscope/mcu/instances.h>   /* 内含 mailbox.h / plot.h / watch.h */
+```
+
+SDK 在 `src/instances.c` 中以 weak 符号预定义四个实例，应用层零定义直接使用：
+
+```c
+extern omniscope_mailbox_t      g_omniscope_mailbox;
+extern omniscope_trace_buffer_t g_omniscope_trace;
+extern omniscope_plot_t         g_omniscope_plot;
+extern omniscope_watch_table_t  g_omniscope_watch;
+```
+
+---
+
+#### `omniscope_embedded_init`
+
+```c
+static inline void omniscope_embedded_init(void);
+```
+
+一键初始化全部四个共享实例（mailbox / trace / plot / watch）。启动时、任何任务使用前调用一次。seqlock 与 watch 表项注册仍需按业务自行调用。
+
+**链接与覆盖语义**：
+
+- 实例经静态库链接，固件完全不引用时 `instances.o` 不被拉入，零 SRAM 开销；
+- weak 定义允许应用以同名强符号覆盖（例如放入 CCMRAM）：链接器自动丢弃 SDK 副本；
+- 符号名是上位机自动发现约定，覆盖时也必须保持同名。
+
 ## 4. 综合示例（一段代码覆盖全部 API）
 
 ```c
@@ -359,15 +394,11 @@ static inline uint8_t omniscope_type_size(uint8_t elem_type);
  * HAL_GetTick 为 1ms 分辨率, 需要真微秒可改用 DWT->CYCCNT / (SystemCoreClock/1MHz) */
 #define OMNISCOPE_PLOT_TIMESTAMP_US() (HAL_GetTick() * 1000U)
 
-#include <omniscope/mcu/mailbox.h>   /* 邮箱 + 迹缓冲 + seqlock */
-#include <omniscope/mcu/plot.h>      /* 命名通道推送 (header-only) */
-#include <omniscope/mcu/watch.h>     /* 监视与参数表 (header-only) */
+/* instances.h 内含 mailbox/plot/watch 头文件, 并以 weak 符号预定义
+ * g_omniscope_mailbox / g_omniscope_trace / g_omniscope_plot / g_omniscope_watch
+ * 四个共享实例 (约定符号名, 上位机自动发现), 应用层无需自行定义 */
+#include <omniscope/mcu/instances.h>
 
-/* ============ 1. 约定符号全局变量: 必须驻留 SRAM, 上位机按名自动发现 ============ */
-omniscope_mailbox_t      g_omniscope_mailbox;
-omniscope_trace_buffer_t g_omniscope_trace;
-omniscope_plot_t         g_omniscope_plot;
-omniscope_watch_table_t  g_omniscope_watch;
 static omniscope_seqlock_t s_snapshot_lock;
 
 /* ============ 2. 被监视 / 被调变量: 必须 volatile (SWD 绕过 CPU 直写) ============ */
@@ -384,21 +415,16 @@ static int s_echo_idx = -1;               /* echo 在 watch 表中的索引 */
 /* ============ 3. 初始化: 外设就绪后、任务启动前调用一次 ============ */
 static void OmniDemo_Init(void)
 {
-    /* mailbox 邮箱: 槽位 0=kp 写入初值供上位机回显 */
-    omniscope_mailbox_init(&g_omniscope_mailbox);
-    omniscope_mailbox_set_param(&g_omniscope_mailbox, 0, g_pid_kp);
+    /* 一键初始化 mailbox/trace/plot/watch 四个共享实例 */
+    omniscope_embedded_init();
 
-    /* trace 迹缓冲 */
-    omniscope_trace_init(&g_omniscope_trace);
+    /* mailbox 邮箱: 槽位 0=kp 写入初值供上位机回显 */
+    omniscope_mailbox_set_param(&g_omniscope_mailbox, 0, g_pid_kp);
 
     /* seqlock */
     omniscope_seqlock_init(&s_snapshot_lock);
 
-    /* plot 命名通道 FIFO (通道由 OMNISCOPE_PLOT 首次调用时自动注册) */
-    omniscope_plot_init(&g_omniscope_plot);
-
-    /* watch 表: 参数项 + 只读标量 + 大数组 */
-    omniscope_watch_init(&g_omniscope_watch);
+    /* watch 表: 参数项 + 只读标量 + 大数组 (plot 通道由 OMNISCOPE_PLOT 首次调用时自动注册) */
     omniscope_watch_register_param(&g_omniscope_watch, "pid.kp", &g_pid_kp,
                                    OMNISCOPE_TYPE_F32, 0.0f, 10.0f, 0.1f);
     omniscope_watch_register_scalar(&g_omniscope_watch, "sys.uptime_s", &g_uptime_s,

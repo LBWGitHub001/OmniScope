@@ -4,6 +4,7 @@
 
 add_library(omniscope_embedded STATIC
     src/mailbox.c
+    src/instances.c
 )
 add_library(OmniScope::Embedded ALIAS omniscope_embedded)
 
