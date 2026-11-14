@@ -8,7 +8,7 @@
  * that never touches these symbols pays no SRAM for them.
  */
 
-#include "omniscope/mcu/instances.h"
+#include "omniscope/omniscope.h"
 
 omniscope_mailbox_t g_omniscope_mailbox __attribute__((weak));
 omniscope_trace_buffer_t g_omniscope_trace __attribute__((weak));
