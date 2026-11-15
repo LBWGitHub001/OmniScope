@@ -12,6 +12,7 @@ import Hammer from "hammerjs";
 import { compileExpr, type ExprFn } from "./expr";
 import { type Marker } from "./markers";
 import { Scene3DView, type Scene3DStats } from "./Scene3DView";
+import { XyPane, type XyCurve } from "./XyPane";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, zoomPlugin);
 (window as unknown as { Hammer: typeof Hammer }).Hammer = Hammer;
@@ -21,6 +22,9 @@ export type DataBus = {
   addLog: (level: string, msg: string, ts?: number) => void;
   setImage: (name: string, objectUrl: string) => void;
   setStreams: (names: string[]) => void;
+  /// 通用 XY 曲线发布（约定：plot 消息中含 x/y 等长数组的对象值，键名即通道名；
+  /// 频域发布为典型用法：x=频率Hz, y=幅度）
+  setCurve: (ch: string, curve: XyCurve) => void;
   addMarker?: (m: Marker) => void;
   addMarkers?: (ms: Marker[]) => void;
   loadReplay: (
@@ -33,8 +37,8 @@ export type DataBus = {
   resetView: () => void;
 };
 
-type PanelKind = "plot" | "log" | "image" | "3d";
-type PanelState = { kind: PanelKind; imgSel: string };
+type PanelKind = "plot" | "log" | "image" | "3d" | "xy";
+type PanelState = { kind: PanelKind; imgSel: string; xySel?: string };
 type LogLine = { level: string; msg: string; ts?: number; t?: number };
 type ViewMode = "sliding" | "centered" | "paused";
 
@@ -191,6 +195,11 @@ export function DebugWorkbench({
   }, [logs]);
   const [images, setImages] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<string[]>([]);
+  // 通用 XY 曲线（频域发布）：通道列表 + 版本号驱动 XY 面板刷新
+  const [xyChannels, setXyChannels] = useState<string[]>([]);
+  const [xyVersion, setXyVersion] = useState(0);
+  const [xyDb, setXyDb] = useState(true);
+  const [xyShowPeak, setXyShowPeak] = useState(true);
   const [manual, setManual] = useState(false);
   const manualRef = useRef(false);
   const kinds = panels.map((p) => p.kind);
@@ -227,6 +236,8 @@ export function DebugWorkbench({
   const imgBuf = useRef<Record<string, string>>({});
   const streamBuf = useRef<string[]>([]);
   const markerBuf = useRef<Marker[]>([]);
+  const xyRef = useRef<Record<string, XyCurve>>({});
+  const xyDirty = useRef(false);
   const chartDirty = useRef(false);
   const rafRef = useRef(0);
   const replayRef = useRef(replay);
@@ -338,6 +349,10 @@ export function DebugWorkbench({
       const batch = markerBuf.current;
       markerBuf.current = [];
       setMarkers(batch);
+    }
+    if (xyDirty.current) {
+      xyDirty.current = false;
+      setXyVersion((v) => v + 1);
     }
   }, [syncChart]);
 
@@ -568,6 +583,12 @@ export function DebugWorkbench({
         streamBuf.current.push(...names);
         schedule();
       },
+      setCurve(ch, curve) {
+        xyRef.current[ch] = curve;
+        xyDirty.current = true;
+        setXyChannels((prev) => (prev.includes(ch) ? prev : [...prev, ch].sort()));
+        schedule();
+      },
       addMarker(m) {
         markerBuf.current.push(m);
         schedule();
@@ -613,6 +634,9 @@ export function DebugWorkbench({
         lastX.current = 0;
         logBuf.current = [];
         setMarkers([]);
+        xyRef.current = {};
+        setXyChannels([]);
+        setXyVersion((v) => v + 1);
         chartDirty.current = false;
         Object.values(imgBuf.current).forEach((u) => {
           if (u.startsWith("blob:")) URL.revokeObjectURL(u);
@@ -660,6 +684,17 @@ export function DebugWorkbench({
     });
   };
 
+  const currentXySel = activePanel?.xySel || xyChannels[0] || "";
+  const handleSetXyChannel = (chName: string) => {
+    setPanels((prev) => {
+      const next = [...prev];
+      if (next[clampedSelectedIdx]) {
+        next[clampedSelectedIdx] = { ...next[clampedSelectedIdx], xySel: chName };
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="workbench-root">
       <aside className={sidebar ? "dbg-side" : "dbg-side collapsed"}>
@@ -673,6 +708,7 @@ export function DebugWorkbench({
               {activeKind === "3d" && "3D 空间设置"}
               {activeKind === "image" && "实时图像设置"}
               {activeKind === "log" && "运行日志设置"}
+              {activeKind === "xy" && "XY 曲线设置"}
             </div>
 
             {/* Plot Context Settings */}
@@ -1063,6 +1099,70 @@ export function DebugWorkbench({
               </>
             )}
 
+            {/* XY Curve Context Settings */}
+            {activeKind === "xy" && (
+              <>
+                <div className="side-sec">
+                  <div className="side-h">曲线通道选路</div>
+                  <div style={{ marginTop: 4, marginBottom: 6 }}>
+                    <select
+                      value={currentXySel}
+                      onChange={(e) => handleSetXyChannel(e.target.value)}
+                      style={{ width: "100%", fontSize: 11, height: 26, padding: "0 6px" }}
+                    >
+                      {xyChannels.length === 0 && <option value="">等待 XY 曲线数据…</option>}
+                      {xyChannels.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", justifyContent: "space-between" }}>
+                    <span>已发现曲线通道</span>
+                    <span className="mono" style={{ color: "var(--cyan)" }}>
+                      {xyChannels.length} 个
+                    </span>
+                  </div>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">纵轴显示</div>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={xyDb} onChange={(e) => setXyDb(e.target.checked)} />
+                    对数幅度 (dB)
+                  </label>
+                  <label style={{ fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <input type="checkbox" checked={xyShowPeak} onChange={(e) => setXyShowPeak(e.target.checked)} />
+                    标注最高峰
+                  </label>
+                </div>
+
+                <div className="side-sec">
+                  <div className="side-h">曲线诊断状态</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
+                    <div>
+                      活动通道：<b className="mono" style={{ color: "var(--cyan)" }}>{currentXySel || "未选定"}</b>
+                    </div>
+                    <div>
+                      数据点数：
+                      <b className="mono" style={{ color: "var(--cyan)" }}>
+                        {currentXySel ? xyRef.current[currentXySel]?.x.length ?? 0 : 0}
+                      </b>
+                    </div>
+                    {currentXySel && xyRef.current[currentXySel]?.meta && (
+                      <div className="mono" style={{ fontSize: 10, color: "var(--faint)", marginTop: 4, wordBreak: "break-all" }}>
+                        meta: {JSON.stringify(xyRef.current[currentXySel]!.meta)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--faint)", marginTop: 8, lineHeight: 1.5 }}>
+                    XY 曲线由下位机经 plot 消息发布（对象含 x/y 等长数组），频域发布为其典型用法。
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Image Context Settings */}
             {activeKind === "image" && (
               <>
@@ -1292,7 +1392,7 @@ export function DebugWorkbench({
                 <div className="tile-head">
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 12 }}>
                     <span style={{ color: k === "3d" ? "var(--cyan)" : undefined }}>
-                      {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : "运行日志"}
+                      {k === "3d" ? "3D 空间视口 (Markers)" : k === "plot" ? "曲线绘图" : k === "image" ? "实时图像" : k === "xy" ? "XY 曲线" : "运行日志"}
                     </span>
                   </div>
                   {k !== "image" && k !== "log" && (
@@ -1316,6 +1416,7 @@ export function DebugWorkbench({
                     >
                       <option value="plot">绘图</option>
                       <option value="3d">3D 视图 (Markers)</option>
+                      <option value="xy">XY 曲线</option>
                       <option value="image">图像</option>
                       <option value="log">日志</option>
                     </select>
@@ -1442,6 +1543,17 @@ export function DebugWorkbench({
                       onStatsChange={setScene3DStats}
                     />
                   )}
+                  {k === "xy" && (
+                    <XyPane
+                      channel={panel.xySel || xyChannels[0] || ""}
+                      curve={(() => {
+                        const sel = panel.xySel || xyChannels[0] || "";
+                        return sel ? xyRef.current[sel] : undefined;
+                      })()}
+                      db={xyDb}
+                      showPeak={xyShowPeak}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -1453,7 +1565,7 @@ export function DebugWorkbench({
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span>当前视口:</span>
             <span style={{ color: "var(--cyan)", fontWeight: 600 }}>
-              {activeKind === "plot" ? "曲线绘图" : activeKind === "3d" ? "3D 空间视口" : activeKind === "image" ? "实时图像" : "运行日志"}
+              {activeKind === "plot" ? "曲线绘图" : activeKind === "3d" ? "3D 空间视口" : activeKind === "image" ? "实时图像" : activeKind === "xy" ? "XY 曲线" : "运行日志"}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--muted)", fontSize: 11 }}>
@@ -1470,6 +1582,11 @@ export function DebugWorkbench({
             {activeKind === "image" && (
               <span>
                 视频流: {currentImgSel || "默认"} · 状态: {images[currentImgSel] ? "活跃传输中" : "等待数据帧"}
+              </span>
+            )}
+            {activeKind === "xy" && (
+              <span>
+                通道: {currentXySel || "未选定"} · 点数: {currentXySel ? xyRef.current[currentXySel]?.x.length ?? 0 : 0} · 纵轴: {xyDb ? "dB" : "线性"}
               </span>
             )}
             {activeKind === "log" && (

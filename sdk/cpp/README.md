@@ -178,6 +178,25 @@ void omniscope::plot(const nlohmann::json & data);
 omniscope::plot({{"yaw", 12.5}, {"pitch", -3.2}, {"speed", 28.0}});
 ```
 
+#### 通用 XY 曲线发布（频域发布）
+
+`plot` 消息中，任何值为对象且含 `x` / `y` 两个**等长数值数组**的键，Watch 前端将其渲染为一条 XY 曲线，**键名即通道名**。频域发布（FFT 频谱）是其典型用法，也可用于相平面图、标定曲线、直方图等任意 XY 数据。无需新增 API，直接复用 `omniscope::plot`：
+
+```cpp
+// 示例：发布一通道 FFT 频谱（FFT 由调用方计算）
+nlohmann::json msg;
+msg["obs_x_spectrum"] = {
+    {"x", freq},   // 频率轴 (Hz)
+    {"y", mag},    // 幅度
+    {"meta", {{"xlabel", "Hz"}, {"kind", "spectrum"}, {"fs", sample_rate}}}  // 可选展示提示
+};
+omniscope::plot(msg);
+```
+
+- `meta` 可选：`xlabel` 为 x 轴单位标签；`kind="spectrum"` 提示前端按频谱展示（默认开启 dB 纵轴与最高峰标注）
+- 数字值照旧进入时域曲线，与 XY 曲线互不干扰
+- Watch 页将面板类型切换为「XY 曲线」即可选择对应通道查看
+
 ### 3.3 分级日志 log / info / warn / error / debug
 
 ---

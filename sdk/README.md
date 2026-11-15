@@ -1,119 +1,207 @@
-# OmniScope SDK（C++ 版与嵌入式版）
+# OmniScope Modern C++ & Embedded SDK
 
-OmniScope 下位机 SDK 分为两个版本，详细文档各自独立：
-
-- **[C++ 版完整文档 → `cpp/README.md`](cpp/README.md)**（`OmniScope::Cpp`）
-  面向机器人车载工控机（Linux / ROS / Jetson）与控制算法工程，提供 UDP 遥测波形、结构化日志、ROS 2 兼容 3D Marker、图像推流、上位机反向控制、`.rmbag` 数据集录放与相机标定。
-- **[嵌入式版完整文档 → `embedded/README.md`](embedded/README.md)**（`OmniScope::Embedded`）
-  面向 STM32 / Cortex-M 等裸机与 RTOS 工程，纯 C99 零依赖：SWD 调参邮箱、命名通道波形推送、变量监视/参数表与高速迹缓冲，上位机经 OpenOCD 不 halt CPU 读写。
-
-两个版本在同一次 CMake 配置中都会生成，互不依赖。你的工程链接哪个目标，就使用哪个版本：
-
-```cmake
-target_link_libraries(robot_node PRIVATE OmniScope::Cpp)      # 用 C++ 版
-target_link_libraries(mcu_fw     PRIVATE OmniScope::Embedded) # 用嵌入式版
-```
+OmniScope 下位机 SDK 面向机器人车载工控机（Linux / ROS / Jetson）、嵌入式微控制器（STM32 / Cortex-M 系列）及控制算法工程，提供标准化、高内聚的组件库与现代化公共头文件体系。
 
 ---
 
-## 1. 目录组织
+## 1. 架构与目录组织
+
+SDK 统一收敛公共暴露接口（Public Headers）与内部私有实现（Private Sources），所有头文件统一位于 `include/omniscope/`，所有实现源码位于 `src/`：
 
 ```
 sdk/
-├── CMakeLists.txt                  # 顶层：add_subdirectory(cpp|embedded) 与安装导出
-├── cmake/
-│   └── OmniScopeConfig.cmake.in    # find_package(OmniScope) 包配置模板
+├── CMakeLists.txt                         # 统一现代 CMake：组件化配置与安装导出 (Modern CMake Package)
+├── README.md                              # 本文档
 │
-├── cpp/                            # 【C++ 版】OmniScope::Cpp —— 文档见 cpp/README.md
-│   ├── include/omniscope/
-│   │   ├── omniscope.hpp           # 统揽头：init/plot/log/plot_marker/plot_image/poll_json
-│   │   ├── logger.hpp              # 遥测客户端（remote_logger.hpp 兼容别名 Logger）
-│   │   ├── remote_logger.hpp       # RemoteLogger 单例遥测引擎
-│   │   ├── marker.hpp              # ROS 2 兼容 3D Marker + Fluent Builders
-│   │   ├── rmbag/                  # 视觉姿态数据集录放（proto/meta/reader/writer/playback）
-│   │   └── calibration/            # 棋盘格标定仿真数据源
-│   └── src/
-│       ├── logger/                 # UDP 传输、协议引擎、图像压缩（含 internal/*.hpp）
-│       ├── rmbag/                  # 数据集读写实现
-│       └── calibration/            # 标定算法与 omniscope_calibrate 节点
+├── include/                               # 【统一公共头文件根目录】
+│   └── omniscope/
+│       ├── omniscope.hpp                  # 【统揽头文件】现代极简 API、便捷函数与流畅 Marker 构造
+│       ├── logger.hpp                     # 遥测核心客户端（RemoteLogger 类定义）
+│       ├── remote_logger.hpp              # 兼容性头文件别名
+│       ├── marker.hpp                     # ROS 2 兼容 3D Marker 定义 + Fluent Static Builders
+│       ├── mcu/
+│       │   └── mailbox.h                  # 单片机 SWD 纯 C99 内存邮箱与热整定快照
+│       ├── rmbag/                         # 满帧率视觉姿态数据集录放库公共头文件
+│       │   ├── proto.hpp                  # RMB1 数据格式协议 (纳秒对齐、四元数、欧拉角)
+│       │   ├── meta.hpp                   # 录制元信息与统计采集
+│       │   ├── reader.hpp                 # 数据集读取器
+│       │   ├── writer.hpp                 # 高吞吐无损写盘器
+│       │   └── playback.hpp               # 硬件在环回放器
+│       └── calibration/                   # 相机与手眼标定公共头文件
+│           ├── calibrator.hpp             # 棋盘格四维覆盖度标定算法
+│           └── test_feed.hpp              # 虚拟棋盘格仿真数据源
 │
-└── embedded/                       # 【嵌入式版】OmniScope::Embedded —— 文档见 embedded/README.md
-    ├── include/omniscope/mcu/
-    │   ├── mailbox.h               # 调参邮箱 + 高速迹缓冲 + SeqLock
-    │   ├── plot.h                  # 命名通道推送 FIFO（header-only）
-    │   └── watch.h                 # 监视与参数表（header-only）
-    └── src/
-        └── mailbox.c               # 唯一的 .c 实现文件
+└── src/                                   # 【统一源码实现根目录】
+    ├── logger/                            # 遥测实现 (UDP 传输、协议引擎、图像压缩、异步落盘)
+    │   ├── internal/*.hpp
+    │   └── *.cpp
+    ├── mcu/                               # MCU 纯 C 实现 (零 CPU 暂停 SWD 通讯)
+    │   └── mailbox.c
+    ├── rmbag/                             # RMBag 数据集读写源码
+    │   └── *.cpp
+    └── calibration/                       # 标定算法与独立可执行标定节点
+        ├── calibrator.cpp
+        └── calibrate_node.cpp
 ```
 
 ---
 
 ## 2. CMake 引入使用
 
-### 方式 A：源码子目录（`add_subdirectory`）
+### 方式 A：源码子目录方式 (`add_subdirectory`)
+
+在机器人或算法工程的 `CMakeLists.txt` 中添加：
 
 ```cmake
+# 引入 SDK 子目录
 add_subdirectory(path/to/OmniScope/sdk)
 
-# 主机端机器人/算法工程 → 链接 C++ 版
-target_link_libraries(your_robot_target PRIVATE OmniScope::Cpp)
+# 一键链接全部组件（统一接口）
+target_link_libraries(your_robot_target PRIVATE OmniScope::All)
 
-# 单片机固件工程（交叉编译时建议单独配置）→ 链接嵌入式版
-target_link_libraries(your_mcu_target   PRIVATE OmniScope::Embedded)
+# 或者按需链接具体模块
+target_link_libraries(your_robot_target PRIVATE OmniScope::Logger)
+target_link_libraries(your_mcu_target   PRIVATE OmniScope::MCU)
+target_link_libraries(your_vision_target PRIVATE OmniScope::RMBag)
+target_link_libraries(your_calib_target  PRIVATE OmniScope::Calibrator)
 ```
 
-### 方式 B：安装后 `find_package`
+### 方式 B：现代包导入方式 (`find_package`)
 
-```bash
-cmake -S sdk -B sdk/build && cmake --build sdk/build
-cmake --install sdk/build --prefix /opt/omniscope
-```
+在编译并 `make install` 之后，在外部工程的 `CMakeLists.txt` 中：
 
 ```cmake
+# 自动发现 OmniScope Package
 find_package(OmniScope CONFIG REQUIRED)
-target_link_libraries(your_target PRIVATE OmniScope::Cpp)       # 或 OmniScope::Embedded
-```
 
-C++ 版的第三方依赖（Threads、OpenCV、fmt、nlohmann_json、yaml-cpp、Eigen3）会在引入时自动查找；标定模块在找到 Eigen3、yaml-cpp、nlohmann_json 时自动编入并生成 `omniscope_calibrate` 可执行节点。嵌入式版无任何第三方依赖，只要求 C99 编译器，适合交叉工具链直接编译。
+# 链接目标
+target_link_libraries(your_target PRIVATE OmniScope::All)
+```
 
 ---
 
-## 3. 最小示例
+## 3. C++ 现代调用示例
 
-C++ 版（完整示例见 [`cpp/README.md` § 4](cpp/README.md)）：
+### 极简统揽头文件 (`<omniscope/omniscope.hpp>`)
+
+推荐直接包含统揽头文件，即可享受极简顶层 API：
 
 ```cpp
 #include <omniscope/omniscope.hpp>
 
 int main() {
+    // 1. 初始化遥测引擎
     omniscope::RemoteLogger::Config cfg;
     cfg.sender_name = "sentry_robot";
     omniscope::init(cfg);
 
-    omniscope::plot({{"yaw", 12.5}, {"pitch", -3.2}});
-    omniscope::info("Target acquired: dist={:.2f}m", 2.34);
+    // 2. 实时高频上报多通道波形（极简一行）
+    omniscope::plot({
+        {"yaw", 12.5},
+        {"pitch", -3.2},
+        {"speed", 28.0}
+    });
+
+    // 3. 结构化日志打印（原生支持 fmt 占位符）
+    omniscope::info("Armor detected at distance: {:.2f}m", 3.45);
+    omniscope::warn("Approaching gimbal limit: angle={:.1f}deg", 48.5);
+
+    // 4. 发送 3D 可视化标记（使用便捷工厂构建器）
+    omniscope::plot_marker(
+        omniscope::Marker::make_arrow({0, 0, 0}, {2.0f, 0.5f, 0.0f})
+            .set_ns("trajectory")
+            .set_id(1)
+            .set_lifetime(0.5f)
+    );
+
+    omniscope::plot_marker(
+        omniscope::Marker::make_cube({2.0f, 0.5f, 0.0f}, {0.3f, 0.3f, 0.3f})
+            .set_ns("target_box")
+    );
+
+    omniscope::plot_marker(
+        omniscope::Marker::make_text({2.0f, 0.5f, 0.4f}, "Target #1")
+    );
+
+    // 5. 实时图像回传（自动限频与 JPEG 压缩）
+    cv::Mat frame = ...;
+    omniscope::plot_image(frame, {{"name", "sentry_main_camera"}});
+
     omniscope::shutdown();
+    return 0;
 }
 ```
 
-嵌入式版（完整示例见 [`embedded/README.md` § 4](embedded/README.md)）：
+### 通用 XY 曲线发布（频域发布）
+
+`plot` 消息中，任何值为对象且含 `x` / `y` 两个**等长数值数组**的键，Watch 前端将其渲染为一条 XY 曲线，**键名即通道名**。频域发布（FFT 频谱）是其典型用法，也可用于相平面图、标定曲线、直方图等任意 XY 数据。无需新增 API，直接复用 `omniscope::plot`：
+
+```cpp
+// 示例：发布一通道 FFT 频谱（FFT 由调用方计算）
+nlohmann::json msg;
+msg["obs_x_spectrum"] = {
+    {"x", freq},   // 频率轴 (Hz)
+    {"y", mag},    // 幅度
+    {"meta", {{"xlabel", "Hz"}, {"kind", "spectrum"}, {"fs", sample_rate}}}  // 可选展示提示
+};
+omniscope::plot(msg);
+```
+
+- `meta` 可选：`xlabel` 为 x 轴单位标签；`kind="spectrum"` 提示前端按频谱展示（默认开启 dB 纵轴与最高峰标注）
+- 数字值照旧进入时域曲线，与 XY 曲线互不干扰
+- Watch 页将面板类型切换为「XY 曲线」即可选择对应通道查看
+
+---
+
+## 4. 单片机嵌入式调用 (`OmniScope::MCU`)
+
+在 STM32 / FreeRTOS 纯 C 工程中，直接引入头文件并链接 `OmniScope::MCU`（或直接将 `mailbox.h` 与 `mailbox.c` 加入工程源文件列表）：
 
 ```c
-#define OMNISCOPE_PLOT_TIMESTAMP_US() (HAL_GetTick() * 1000U)
-#include <omniscope/mcu/instances.h>   /* 内含 plot.h / watch.h / mailbox.h, SDK 预定义共享实例 */
+#include "omniscope/mcu/mailbox.h"
 
-int main(void) {
-    omniscope_embedded_init();          /* 一键初始化 g_omniscope_* 四个实例 (约定符号名, 上位机自动发现) */
+omniscope_mailbox_t g_tuning_mailbox;
+omniscope_trace_buffer_t g_trace_buffer;
+
+void main(void) {
+    omniscope_mailbox_init(&g_tuning_mailbox);
+    omniscope_trace_init(&g_trace_buffer);
+
     while (1) {
-        OMNISCOPE_PLOT(&g_omniscope_plot, "gimbal.yaw", yaw_deg);
+        // 主循环中检查上位机是否有新参数下发 (SWD 在线调参，零 CPU 暂停)
+        if (omniscope_mailbox_has_update(&g_tuning_mailbox)) {
+            pid_kp = omniscope_mailbox_get_param(&g_tuning_mailbox, 0, 1.0f);
+            pid_ki = omniscope_mailbox_get_param(&g_tuning_mailbox, 1, 0.0f);
+            pid_kd = omniscope_mailbox_get_param(&g_tuning_mailbox, 2, 0.1f);
+            omniscope_mailbox_acknowledge(&g_tuning_mailbox);
+        }
     }
+}
+
+// 在高频控制中断（1kHz ~ 10kHz）中记录微秒级采样
+void Control_ISR(void) {
+    float channels[OMNISCOPE_TRACE_CHANNELS] = {target_val, current_val, pid_out, current_iq};
+    omniscope_trace_record(&g_trace_buffer, get_micros(), channels);
 }
 ```
 
 ---
 
-## 4. 版本选择说明
+## 5. 满帧率视觉姿态录制 (`OmniScope::RMBag`)
 
-- 两个目标互不依赖：链接 `OmniScope::Cpp` 不会引入 `omniscope/mcu/*.h`，链接 `OmniScope::Embedded` 不会引入任何 C++ 头文件与第三方库。
-- 同一个工程同时包含车载节点与固件子工程时，可以分别链接两个目标。
-- 嵌入式固件建议用对应的交叉工具链（如 `arm-none-eabi-gcc`）单独 `cmake -S sdk -B build-mcu -DCMAKE_TOOLCHAIN_FILE=...`，只编译 `omniscope_embedded` 目标即可。
+```cpp
+#include <omniscope/rmbag/writer.hpp>
+
+omniscope::rmbag::Writer writer;
+writer.open("records/session.rmbag");
+writer.write_header(header_json);
+
+omniscope::rmbag::Frame frame;
+frame.hdr.ts_ns = get_now_ns();
+frame.hdr.q_w = q.w(); frame.hdr.q_x = q.x(); frame.hdr.q_y = q.y(); frame.hdr.q_z = q.z();
+frame.hdr.width = 1280; frame.hdr.height = 1024; frame.hdr.step = 1280 * 3;
+frame.hdr.data_len = frame.hdr.step * frame.hdr.height;
+frame.pixels = std::move(raw_bgr8_bytes);
+
+writer.write_frame(frame);
+```

@@ -5,6 +5,21 @@ import { useSSE } from "../../shared/useSSE";
 import { useInstance } from "../../shared/instance";
 import { DebugWorkbench, type DataBus } from "../../shared/DebugWorkbench";
 
+/// 通用 XY 曲线约定：plot 消息中值为对象且含 x/y 等长数值数组 → 一条 XY 曲线，键名即通道名
+/// 频域发布为典型用法（x=频率Hz, y=幅度, meta={xlabel,kind,fs}）
+function isXyCurve(v: unknown): v is { x: number[]; y: number[]; meta?: Record<string, unknown> } {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    Array.isArray(o.x) &&
+    Array.isArray(o.y) &&
+    o.x.length > 0 &&
+    o.x.length === o.y.length &&
+    typeof o.x[0] === "number" &&
+    typeof o.y[0] === "number"
+  );
+}
+
 function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: { current: number | null }) {
   if (!bus) return;
   const type = msg.type as string | undefined;
@@ -29,7 +44,11 @@ function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: {
     const t = t0Ref.current ? (ts - t0Ref.current) / 1e9 : 0;
     for (const [k, v] of Object.entries(data)) {
       if (k === "ts" || k === "_from" || k === "type" || k === "hb" || k === "marker" || k === "markers") continue;
-      if (typeof v === "number") bus.addPoint(k, t, v);
+      if (typeof v === "number") {
+        bus.addPoint(k, t, v);
+        continue;
+      }
+      if (isXyCurve(v)) bus.setCurve(k, { x: v.x, y: v.y, meta: v.meta });
     }
     return;
   }
