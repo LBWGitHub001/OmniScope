@@ -1,0 +1,366 @@
+.calibrate-page {
+  min-width: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+
+.calibrate-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 6px 12px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.calibrate-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.calibrate-field-label {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.calibrate-select {
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.calibrate-sender-select {
+  width: 180px;
+}
+
+.calibrate-connection,
+.calibrate-state {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.calibrate-connection.is-active,
+.calibrate-state.is-ok {
+  color: var(--ok);
+}
+
+.calibrate-state.is-warn {
+  color: var(--warn);
+}
+
+.calibrate-toolbar-spacer {
+  flex: 1 1 12px;
+}
+
+.calibrate-exposure-range {
+  width: 110px;
+  height: 28px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.calibrate-exposure-value {
+  width: 72px;
+  color: var(--accent-ink);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.calibrate-workbench {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calibrate-image-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.calibrate-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.calibrate-empty {
+  color: var(--faint);
+  text-align: center;
+}
+
+.calibrate-empty-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.calibrate-empty-detail {
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.calibrate-hint {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.calibrate-sidebar {
+  display: flex;
+  flex: 0 0 328px;
+  flex-direction: column;
+  gap: 10px;
+  width: 328px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.calibrate-panel {
+  flex-shrink: 0;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.calibrate-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.calibrate-panel-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.calibrate-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.calibrate-page .calibrate-button {
+  height: 28px;
+  padding: 0 8px;
+  color: var(--text-strong);
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: none;
+  transition: none;
+}
+
+.calibrate-page .calibrate-button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--surface-2);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.calibrate-page .calibrate-button.is-primary,
+.calibrate-page .calibrate-button.is-ready {
+  color: #f4f5ff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.calibrate-page .calibrate-button.is-ready {
+  color: var(--canvas);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.calibrate-page .calibrate-button.is-primary:hover:not(:disabled) {
+  color: #f4f5ff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.calibrate-page .calibrate-button.is-ready:hover:not(:disabled) {
+  color: var(--canvas);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.calibrate-page .calibrate-button.is-danger {
+  color: var(--err);
+}
+
+.calibrate-sample-count {
+  color: var(--accent-ink);
+}
+
+.calibrate-coverage {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.calibrate-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.calibrate-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calibrate-metric-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.calibrate-metric-value {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.calibrate-metric-value.is-full {
+  color: var(--ok);
+}
+
+.calibrate-metric-track {
+  height: 4px;
+  overflow: hidden;
+  background: var(--hairline);
+  border-radius: 2px;
+}
+
+.calibrate-metric-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.calibrate-metric-fill.is-full {
+  background: var(--ok);
+}
+
+.calibrate-result {
+  border-color: var(--ok);
+}
+
+.calibrate-result h2,
+.calibrate-result-rms {
+  color: var(--ok);
+}
+
+.calibrate-result-path {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.calibrate-matrix + .calibrate-matrix {
+  margin-top: 10px;
+}
+
+.calibrate-matrix-label {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.calibrate-matrix-value {
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+}
+
+.calibrate-page :is(button, input, select):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.calibrate-page input[type="checkbox"],
+.calibrate-page input[type="range"] {
+  accent-color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .calibrate-workbench {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .calibrate-image-stage {
+    flex: 0 0 320px;
+  }
+
+  .calibrate-sidebar {
+    flex: 0 0 auto;
+    width: 100%;
+    overflow: visible;
+    border-top: 1px solid var(--border);
+    border-left: none;
+  }
+}

@@ -658,7 +658,7 @@ export function Scene3DView({
     const height = container.clientHeight || 400;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x090a0f);
+    scene.background = new THREE.Color(0x111217);
     sceneRef.current = scene;
 
     // Camera (Z-Up ROS coordinate convention)
@@ -687,16 +687,16 @@ export function Scene3DView({
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0x00f0ff, 1.2);
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.0);
     dirLight1.position.set(5, 5, 10);
     scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0x8b5cf6, 0.8);
+    const dirLight2 = new THREE.DirectionalLight(0xc5c9f5, 0.65);
     dirLight2.position.set(-5, -5, -2);
     scene.add(dirLight2);
 
     // Ground Grid (Flat on XY plane, Z=0)
-    const grid = new THREE.GridHelper(gridSize, gridSize, 0x00f0ff, 0x1e2433);
+    const grid = new THREE.GridHelper(gridSize, gridSize, 0x5e6ad2, 0x2c3038);
     grid.rotation.x = Math.PI / 2;
     grid.visible = showGrid !== false;
     scene.add(grid);
@@ -708,16 +708,21 @@ export function Scene3DView({
     scene.add(axes);
     axesGroupRef.current = axes;
 
-    // Resize Observer
+    // Defer renderer writes so observer callbacks do not trigger resize loops.
+    let resizeFrame = 0;
     const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width: w, height: h } = entry.contentRect;
-        if (w > 0 && h > 0) {
-          camera.aspect = w / h;
-          camera.updateProjectionMatrix();
-          renderer.setSize(w, h);
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        for (const entry of entries) {
+          const { width: w, height: h } = entry.contentRect;
+          if (w > 0 && h > 0) {
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+          }
         }
-      }
+      });
     });
     resizeObserver.observe(container);
 
@@ -754,6 +759,7 @@ export function Scene3DView({
 
     return () => {
       cancelAnimationFrame(animId);
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       resizeObserver.disconnect();
       controls.dispose();
       renderer.dispose();
@@ -775,7 +781,7 @@ export function Scene3DView({
       scene.remove(gridRef.current);
       disposeHierarchy(gridRef.current);
     }
-    const grid = new THREE.GridHelper(gridSize, gridSize, 0x00f0ff, 0x1e2433);
+    const grid = new THREE.GridHelper(gridSize, gridSize, 0x5e6ad2, 0x2c3038);
     grid.rotation.x = Math.PI / 2;
     grid.visible = showGrid !== false;
     scene.add(grid);
@@ -928,55 +934,16 @@ export function Scene3DView({
   }, [markers, reportStats]);
 
   return (
-    <div className={`scene3d-container ${className}`} style={{ position: "relative", width: "100%", height: "100%" }}>
-      {/* 3D WebGL Canvas */}
-      <div ref={mountRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />
-
-      {/* Top Left: Active Markers Badge */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "3px 10px",
-          background: "rgba(10, 14, 24, 0.85)",
-          border: "1px solid rgba(0, 240, 255, 0.35)",
-          borderRadius: 6,
-          fontSize: 12,
-          fontFamily: "var(--mono)",
-          color: "var(--cyan)",
-          backdropFilter: "blur(8px)",
-          pointerEvents: "none",
-        }}
-      >
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: activeCount > 0 ? "var(--cyan)" : "#666" }} />
-        {activeCount} 标记 (base_link)
+    <div className={`scene3d-container ${className}`}>
+      <div ref={mountRef} className="scene3d-mount" />
+      <div className="scene3d-badge">
+        <span className={activeCount > 0 ? "scene3d-dot on" : "scene3d-dot"} />
+        {activeCount} 标记 · base_link
       </div>
-
-      {/* Coordinate Axes Legend at Bottom Right */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 10,
-          right: 12,
-          padding: "3px 8px",
-          background: "rgba(10, 14, 24, 0.75)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: 4,
-          fontSize: 11,
-          fontFamily: "var(--mono)",
-          color: "var(--muted)",
-          pointerEvents: "none",
-          display: "flex",
-          gap: 8,
-        }}
-      >
-        <span><b style={{ color: "#f43f5e" }}>X</b> 前</span>
-        <span><b style={{ color: "#10b981" }}>Y</b> 左</span>
-        <span><b style={{ color: "#00f0ff" }}>Z</b> 上</span>
+      <div className="scene3d-axes">
+        <span><b className="axis-x">X</b> 前</span>
+        <span><b className="axis-y">Y</b> 左</span>
+        <span><b className="axis-z">Z</b> 上</span>
       </div>
     </div>
   );

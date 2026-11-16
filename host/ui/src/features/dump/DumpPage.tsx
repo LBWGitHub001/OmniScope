@@ -69,7 +69,7 @@ export function DumpPage() {
               value={fps}
               min={1}
               max={60}
-              style={{ minWidth: "6rem", flex: "0 0 auto" }}
+              className="compact-number"
               onChange={(e) => setFps(Number(e.target.value))}
             />
             <button type="button" onClick={run} disabled={!path}>

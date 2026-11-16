@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJson, stopFeature } from "../../shared/api";
-import { DebugWorkbench, type DataBus } from "../../shared/DebugWorkbench";
+import { DebugWorkbench } from "../../shared/workbench/DebugWorkbench";
+import type { DataBus } from "../../shared/workbench/types";
 import { useInstance } from "../../shared/instance";
 
 type Frame = { i: number; t: number; meta: { name?: string } };
@@ -173,7 +174,7 @@ export function ReplayPage() {
       <div className="feature-toolbar">
         <strong>Replay</strong>
         <input
-          style={{ minWidth: "18rem", flex: 1 }}
+          className="replay-path"
           placeholder="/path/to/run.rlog"
           value={path}
           onChange={(e) => setPath(e.target.value)}
@@ -220,13 +221,7 @@ export function ReplayPage() {
         {err && <span className="err-text">{err}</span>}
         {meta && (
           <span
-            className="mono muted"
-            style={{
-              maxWidth: "280px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
+            className="mono muted ellipsis replay-file"
             title={meta.file}
           >
             {meta.file}
@@ -241,7 +236,7 @@ export function ReplayPage() {
             max={meta.duration || 0}
             step={0.01}
             value={t}
-            style={{ flex: 1 }}
+            className="replay-range"
             onPointerDown={() => setPlaying(false)}
             onChange={(e) => seek(Number(e.target.value))}
           />

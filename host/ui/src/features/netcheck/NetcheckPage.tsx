@@ -107,7 +107,7 @@ export function NetcheckPage() {
           <input
             type="number"
             value={echoPort}
-            style={{ minWidth: "6rem", flex: "0 0 auto" }}
+            className="compact-number"
             onChange={(e) => setEchoPort(Number(e.target.value))}
           />
           <button
@@ -141,11 +141,11 @@ export function NetcheckPage() {
         </div>
         <div className="form-row">
           <label>port</label>
-          <input type="number" value={pingPort} onChange={(e) => setPingPort(Number(e.target.value))} style={{ minWidth: "6rem", flex: "0 0 auto" }} />
+          <input type="number" value={pingPort} onChange={(e) => setPingPort(Number(e.target.value))} className="compact-number" />
           <label>size</label>
-          <input type="number" value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ minWidth: "6rem", flex: "0 0 auto" }} />
+          <input type="number" value={size} onChange={(e) => setSize(Number(e.target.value))} className="compact-number" />
           <label>count</label>
-          <input type="number" value={count} onChange={(e) => setCount(Number(e.target.value))} style={{ minWidth: "6rem", flex: "0 0 auto" }} />
+          <input type="number" value={count} onChange={(e) => setCount(Number(e.target.value))} className="compact-number" />
           <button
             type="button"
             disabled={!host}

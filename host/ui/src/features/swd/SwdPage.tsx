@@ -1,219 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Chart, LineController, LineElement, PointElement, LinearScale, Legend } from "chart.js";
+import { useEffect, useRef, useState } from "react";
 import { getJson, postJson } from "../../shared/api";
 import { useInstance } from "../../shared/instance";
 import { useSSE } from "../../shared/useSSE";
-import { compileExpr, type ExprFn } from "../../shared/expr";
-
-Chart.register(LineController, LineElement, PointElement, LinearScale, Legend);
-
-const COLORS = [
-  "#00f0ff", // Cyber Cyan
-  "#10b981", // Emerald Telemetry Green
-  "#f59e0b", // Laser Amber
-  "#8b5cf6", // Electric Violet
-  "#ec4899", // Neon Pink
-  "#06b6d4", // Electric Teal
-  "#eab308", // Bright Yellow
-  "#3b82f6", // Quantum Blue
-];
-
-type SymbolRow = {
-  name: string;
-  addr?: string;
-  size?: number;
-  words?: string[];
-  u32?: number;
-  i32?: number;
-  f32?: number | null;
-  rtt_ms?: number;
-  error?: string | null;
-  t?: number;
-};
-
-type SwdSnapshot = {
-  phase: string;
-  message: string;
-  project: string;
-  elf?: string | null;
-  hz: number;
-  host: string;
-  telnet_port?: number | null;
-  symbols: SymbolRow[];
-  stats: {
-    ok: number;
-    fail: number;
-    hz: number;
-    rtt_p50: number;
-    rtt_p95: number;
-  };
-  rate_limit_bps?: number;
-  bps_used?: number;
-  omniscope?: {
-    plot_addr?: string | null;
-    watch_addr?: string | null;
-    mailbox_addr?: string | null;
-    plot_ok?: boolean;
-    watch_ok?: boolean;
-    plot_channels?: { index: number; name: string; active: boolean }[];
-    plot_dropped?: number;
-    watch_count?: number;
-  };
-  recording?: boolean;
-  log?: string;
-};
-
-type ElfMatch = {
-  name: string;
-  addr: number;
-  size: number;
-  file?: string;
-};
-
-// --- OmniScope watch table (firmware-declared) ---
-type WatchEntry = {
-  index: number;
-  name: string;
-  ptr: number;
-  elem_type: number;
-  elem_name: string;
-  elem_size: number;
-  kind: number; // 0=monitor 1=param
-  access: number; // 0=RO 1=RW
-  rows: number;
-  cols: number;
-  version: number;
-  min: number;
-  max: number;
-  step: number;
-  is_array: boolean;
-  nbytes: number;
-};
-
-type WatchArrayPayload = {
-  rows: number;
-  cols: number;
-  elemType: number;
-  min: number;
-  max: number;
-  values: ArrayLike<number>;
-  t: number;
-};
-
-function decodeArrayPayload(elemType: number, b64: string): ArrayLike<number> {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const buf = bytes.buffer;
-  switch (elemType) {
-    case 0: return new Float32Array(buf, 0, Math.floor(bytes.length / 4));
-    case 1: return new Int32Array(buf, 0, Math.floor(bytes.length / 4));
-    case 2: return new Uint32Array(buf, 0, Math.floor(bytes.length / 4));
-    case 3: return new Int16Array(buf, 0, Math.floor(bytes.length / 2));
-    case 4: return new Uint16Array(buf, 0, Math.floor(bytes.length / 2));
-    case 5: return new Int8Array(buf, 0, bytes.length);
-    default: return new Uint8Array(buf, 0, bytes.length);
-  }
-}
-
-function fmtHex(addr: number): string {
-  return "0x" + (addr >>> 0).toString(16).toUpperCase().padStart(8, "0");
-}
-
-/** 2D matrix heatmap / 1D bar view for array watch entries. */
-function ArrayView({ payload }: { payload: WatchArrayPayload }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const { rows, cols, values } = payload;
-    const n = rows * cols;
-    let lo = payload.min;
-    let hi = payload.max;
-    if (!(hi > lo)) {
-      lo = Infinity;
-      hi = -Infinity;
-      for (let i = 0; i < n; i++) {
-        const v = values[i] ?? 0;
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      if (!(hi > lo)) { lo = 0; hi = 1; }
-    }
-    if (rows > 1) {
-      const cell = Math.max(2, Math.min(24, Math.floor(340 / cols)));
-      const w = cell * cols;
-      const h = cell * rows;
-      canvas.width = w;
-      canvas.height = h;
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const v = values[y * cols + x] ?? 0;
-          const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-          ctx.fillStyle = `hsl(${Math.round((1 - t) * 240)}, 90%, ${28 + t * 32}%)`;
-          ctx.fillRect(x * cell, y * cell, cell - 1, cell - 1);
-        }
-      }
-    } else {
-      const count = cols;
-      const w = 340;
-      const h = 90;
-      canvas.width = w;
-      canvas.height = h;
-      ctx.fillStyle = "rgba(5, 6, 9, 1)";
-      ctx.fillRect(0, 0, w, h);
-      const bw = Math.max(1, w / count - 1);
-      for (let i = 0; i < count; i++) {
-        const v = values[i] ?? 0;
-        const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-        const bh = Math.max(1, t * (h - 6));
-        ctx.fillStyle = `hsl(${Math.round((1 - t) * 240)}, 85%, 55%)`;
-        ctx.fillRect(i * (w / count), h - bh, bw, bh);
-      }
-    }
-  }, [payload]);
-  return (
-    <div style={{ marginTop: 8 }}>
-      <canvas ref={ref} style={{ display: "block", imageRendering: "pixelated", borderRadius: 4, border: "1px solid var(--hairline)" }} />
-      <div className="mono" style={{ fontSize: 10, color: "var(--faint)", marginTop: 4 }}>
-        色标 [{payload.min !== 0 || payload.max !== 0 ? `${payload.min} ~ ${payload.max}` : "自适应"}] · 版本门控·空闲刷新
-      </div>
-    </div>
-  );
-}
-
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  if (!data || data.length < 2) {
-    return <div style={{ width: 70, height: 20, borderBottom: "1px dashed rgba(255,255,255,0.1)" }} />;
-  }
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const width = 74;
-  const height = 22;
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((v - min) / range) * (height - 6) - 3;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const pathD = `M ${points.join(" L ")}`;
-
-  return (
-    <svg width={width} height={height} style={{ overflow: "visible", display: "block" }}>
-      <path
-        d={pathD}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ filter: `drop-shadow(0 0 4px ${color}88)` }}
-      />
-    </svg>
-  );
-}
+import { compileExpr } from "../../shared/workbench/expr";
+import { SwdTopBar } from "./SwdTopBar";
+import { FormulaDrawer, MailboxDrawer, ParamsDrawer, SettingsDrawer } from "./SwdDrawers";
+import { SymbolPanel } from "./SymbolPanel";
+import { ChartPanel } from "./ChartPanel";
+import { SerialPanel } from "./SerialPanel";
+import { COLORS, decodeArrayPayload } from "./swdUtils";
+import type {
+  ElfMatch,
+  FieldMode,
+  FormulaItem,
+  HistoryPoint,
+  SerialLog,
+  SerialPort,
+  SwdSnapshot,
+  SymbolRow,
+  WatchArrayPayload,
+  WatchEntry,
+  WriteStatus,
+} from "./types";
+import "./swd.css";
 
 export function SwdPage() {
   const { base } = useInstance();
@@ -230,18 +39,9 @@ export function SwdPage() {
   // Online memory write / hot tuning state
   const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
   const [editVal, setEditVal] = useState("");
-  const [writeStatus, setWriteStatus] = useState<Record<string, "ok" | "err">>({});
+  const [writeStatus, setWriteStatus] = useState<Record<string, WriteStatus>>({});
 
   // Virtual formula channels state
-  type FormulaItem = {
-    id: number;
-    expr: string;
-    source: string;
-    enabled: boolean;
-    fn?: ExprFn | null;
-    error?: string | null;
-    color: string;
-  };
   const [formulas, setFormulas] = useState<FormulaItem[]>([]);
   const [formulaDraft, setFormulaDraft] = useState("");
   const [formulaSource, setFormulaSource] = useState("");
@@ -257,13 +57,12 @@ export function SwdPage() {
   const [watchArrays, setWatchArrays] = useState<Record<string, WatchArrayPayload>>({});
   const [arrayExpanded, setArrayExpanded] = useState<Record<string, boolean>>({});
   const [paramDraft, setParamDraft] = useState<Record<string, number>>({});
-  const [paramStatus, setParamStatus] = useState<Record<string, "ok" | "err">>({});
+  const [paramStatus, setParamStatus] = useState<Record<string, WriteStatus>>({});
   const [plotChNames, setPlotChNames] = useState<Record<number, string>>({});
   const [plotDropped, setPlotDropped] = useState(0);
   const [plotPlotted, setPlotPlotted] = useState<Record<string, boolean>>({});
-  const plotHistoryRef = useRef<Record<string, { t: number; v: number }[]>>({});
+  const plotHistoryRef = useRef<Record<string, HistoryPoint[]>>({});
   const [rateLimitInput, setRateLimitInput] = useState(8192);
-
 
   // Settings form state
   const [projectInput, setProjectInput] = useState("");
@@ -273,22 +72,20 @@ export function SwdPage() {
 
   // Plot and view selection per symbol
   const [plotted, setPlotted] = useState<Record<string, boolean>>({});
-  const [fieldMode, setFieldMode] = useState<Record<string, "f32" | "i32" | "u32" | "hex">>({});
+  const [fieldMode, setFieldMode] = useState<Record<string, FieldMode>>({});
 
   // Serial state
-  const [serialPorts, setSerialPorts] = useState<{ device: string; description: string }[]>([]);
+  const [serialPorts, setSerialPorts] = useState<SerialPort[]>([]);
   const [serialDevice, setSerialDevice] = useState("");
   const [serialBaud, setSerialBaud] = useState(115200);
   const [serialOpen, setSerialOpen] = useState(false);
-  const [serialLogs, setSerialLogs] = useState<{ dir: string; text: string }[]>([]);
+  const [serialLogs, setSerialLogs] = useState<SerialLog[]>([]);
   const [serialInput, setSerialInput] = useState("");
   const [serialHex, setSerialHex] = useState(false);
 
   // Time-series history for chart and sparklines
-  const historyRef = useRef<Record<string, { t: number; v: number }[]>>({});
+  const historyRef = useRef<Record<string, HistoryPoint[]>>({});
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
-  const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const chartInstanceRef = useRef<Chart | null>(null);
   const [isPaused, setIsPaused] = useState(false);
 
   // Initial load snapshot
@@ -304,19 +101,20 @@ export function SwdPage() {
       if (st.omniscope?.plot_channels) {
         const names: Record<number, string> = {};
         const toggles: Record<string, boolean> = {};
-        st.omniscope.plot_channels.forEach((c) => {
-          names[c.index] = c.name;
-          toggles[c.name] = true;
+        st.omniscope.plot_channels.forEach((channel) => {
+          names[channel.index] = channel.name;
+          toggles[channel.name] = true;
         });
         setPlotChNames(names);
         setPlotPlotted((prev) => ({ ...toggles, ...prev }));
       }
-      const p: Record<string, boolean> = {};
-      st.symbols?.forEach((s) => {
-        p[s.name] = true;
+      const initialPlotted: Record<string, boolean> = {};
+      st.symbols?.forEach((symbol) => {
+        initialPlotted[symbol.name] = true;
       });
-      setPlotted(p);
+      setPlotted(initialPlotted);
     }).catch(() => {});
+
     // Firmware watch table (in case it was probed before this page opened)
     getJson<{ entries?: WatchEntry[]; values?: Record<string, { value: number; t: number }> }>(
       `${base}/watch/table`
@@ -333,7 +131,7 @@ export function SwdPage() {
       setSearchErr("");
       return;
     }
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setSearching(true);
       setSearchErr("");
       try {
@@ -342,19 +140,19 @@ export function SwdPage() {
         );
         if (res.error) setSearchErr(res.error);
         else setMatches(res.symbols || []);
-      } catch (e) {
-        setSearchErr(String(e));
+      } catch (error) {
+        setSearchErr(String(error));
       } finally {
         setSearching(false);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [search, base]);
 
   // Load serial ports when opened
   useEffect(() => {
     if (showSerial) {
-      getJson<{ ports: { device: string; description: string }[]; open: boolean; port: string; baud: number }>(
+      getJson<{ ports: SerialPort[]; open: boolean; port: string; baud: number }>(
         `${base}/serial/ports`
       ).then((res) => {
         setSerialPorts(res.ports || []);
@@ -367,247 +165,132 @@ export function SwdPage() {
 
   // Handle SSE events
   useSSE(`${base}/events`, (ev) => {
-    const typ = ev.type as string;
-    if (typ === "state") {
-      const st = ev as unknown as SwdSnapshot;
-      setSnap(st);
-      if (st.omniscope?.mailbox_addr) {
-        setMailboxAddr((cur) => (cur === "0x20000000" ? st.omniscope!.mailbox_addr! : cur));
+    const type = ev.type as string;
+    if (type === "state") {
+      const state = ev as unknown as SwdSnapshot;
+      setSnap(state);
+      if (state.omniscope?.mailbox_addr) {
+        setMailboxAddr((current) => (current === "0x20000000" ? state.omniscope!.mailbox_addr! : current));
       }
-      if (st.omniscope?.plot_channels) {
+      if (state.omniscope?.plot_channels) {
         const names: Record<number, string> = {};
-        st.omniscope.plot_channels.forEach((c) => {
-          names[c.index] = c.name;
+        state.omniscope.plot_channels.forEach((channel) => {
+          names[channel.index] = channel.name;
         });
         setPlotChNames((prev) => ({ ...prev, ...names }));
       }
-      if (typeof st.omniscope?.plot_dropped === "number") setPlotDropped(st.omniscope.plot_dropped);
-    } else if (typ === "swd_plot") {
-      const p = ev as { channels: Record<string, string>; points: [number, number, number][]; dropped?: number };
-      if (p.channels) {
+      if (typeof state.omniscope?.plot_dropped === "number") setPlotDropped(state.omniscope.plot_dropped);
+    } else if (type === "swd_plot") {
+      const plot = ev as { channels: Record<string, string>; points: [number, number, number][]; dropped?: number };
+      if (plot.channels) {
         setPlotChNames((prev) => {
           const next = { ...prev };
-          Object.entries(p.channels).forEach(([k, v]) => {
-            next[Number(k)] = v;
+          Object.entries(plot.channels).forEach(([key, value]) => {
+            next[Number(key)] = value;
           });
           return next;
         });
       }
-      if (typeof p.dropped === "number") setPlotDropped(p.dropped);
-      if (!isPaused && Array.isArray(p.points)) {
+      if (typeof plot.dropped === "number") setPlotDropped(plot.dropped);
+      if (!isPaused && Array.isArray(plot.points)) {
         const now = Date.now() / 1000;
-        p.points.forEach(([ch, _ts, val]) => {
-          const name = p.channels?.[String(ch)] ?? `ch${ch}`;
-          if (!Number.isFinite(val)) return;
+        plot.points.forEach(([channel, _timestamp, value]) => {
+          const name = plot.channels?.[String(channel)] ?? `ch${channel}`;
+          if (!Number.isFinite(value)) return;
           if (!plotHistoryRef.current[name]) plotHistoryRef.current[name] = [];
-          const arr = plotHistoryRef.current[name];
-          arr.push({ t: now, v: val });
-          if (arr.length > 600) arr.shift();
+          const history = plotHistoryRef.current[name];
+          history.push({ t: now, v: value });
+          if (history.length > 600) history.shift();
         });
       }
-    } else if (typ === "watch_table") {
-      const wt = ev as { entries?: WatchEntry[] };
-      setWatchEntries(wt.entries || []);
-    } else if (typ === "watch_sample") {
-      const ws = ev as { name: string; value: number; kind?: number; t?: number };
-      const now = ws.t || Date.now() / 1000;
-      setWatchValues((prev) => ({ ...prev, [ws.name]: { value: ws.value, t: now } }));
-      if (Number.isFinite(ws.value)) {
-        const key = `watch:${ws.name}`;
+    } else if (type === "watch_table") {
+      const table = ev as { entries?: WatchEntry[] };
+      setWatchEntries(table.entries || []);
+    } else if (type === "watch_sample") {
+      const sample = ev as { name: string; value: number; kind?: number; t?: number };
+      const now = sample.t || Date.now() / 1000;
+      setWatchValues((prev) => ({ ...prev, [sample.name]: { value: sample.value, t: now } }));
+      if (Number.isFinite(sample.value)) {
+        const key = `watch:${sample.name}`;
         if (!historyRef.current[key]) historyRef.current[key] = [];
-        const arr = historyRef.current[key];
-        arr.push({ t: now, v: ws.value });
-        if (arr.length > 300) arr.shift();
+        const history = historyRef.current[key];
+        history.push({ t: now, v: sample.value });
+        if (history.length > 300) history.shift();
       }
-    } else if (typ === "watch_array") {
-      const wa = ev as { name: string; rows: number; cols: number; elem_type: number; min: number; max: number; b64: string; t?: number };
+    } else if (type === "watch_array") {
+      const array = ev as {
+        name: string;
+        rows: number;
+        cols: number;
+        elem_type: number;
+        min: number;
+        max: number;
+        b64: string;
+        t?: number;
+      };
       try {
-        const values = decodeArrayPayload(wa.elem_type, wa.b64);
+        const values = decodeArrayPayload(array.elem_type, array.b64);
         setWatchArrays((prev) => ({
           ...prev,
-          [wa.name]: { rows: wa.rows, cols: wa.cols, elemType: wa.elem_type, min: wa.min, max: wa.max, values, t: wa.t || Date.now() / 1000 },
+          [array.name]: {
+            rows: array.rows,
+            cols: array.cols,
+            elemType: array.elem_type,
+            min: array.min,
+            max: array.max,
+            values,
+            t: array.t || Date.now() / 1000,
+          },
         }));
       } catch {
         /* ignore malformed payload */
       }
-    } else if (typ === "sample") {
-      const s = ev as unknown as SymbolRow;
+    } else if (type === "sample") {
+      const sample = ev as unknown as SymbolRow;
       setSnap((prev) => {
         if (!prev) return prev;
-        const nextSymbols = prev.symbols.map((item) => (item.name === s.name ? { ...item, ...s } : item));
+        const nextSymbols = prev.symbols.map((item) => (item.name === sample.name ? { ...item, ...sample } : item));
         return { ...prev, symbols: nextSymbols };
       });
 
-      if (!isPaused && s.t) {
-        const name = s.name;
-        const mode = fieldMode[name] || (s.f32 !== null && s.f32 !== undefined ? "f32" : "u32");
-        let val: number | null = null;
-        if (mode === "f32" && typeof s.f32 === "number") val = s.f32;
-        else if (mode === "i32" && typeof s.i32 === "number") val = s.i32;
-        else if (typeof s.u32 === "number") val = s.u32;
+      if (!isPaused && sample.t) {
+        const name = sample.name;
+        const mode = fieldMode[name] || (sample.f32 !== null && sample.f32 !== undefined ? "f32" : "u32");
+        let value: number | null = null;
+        if (mode === "f32" && typeof sample.f32 === "number") value = sample.f32;
+        else if (mode === "i32" && typeof sample.i32 === "number") value = sample.i32;
+        else if (typeof sample.u32 === "number") value = sample.u32;
 
-        if (val !== null && Number.isFinite(val)) {
+        if (value !== null && Number.isFinite(value)) {
           if (!historyRef.current[name]) historyRef.current[name] = [];
-          const arr = historyRef.current[name];
-          arr.push({ t: s.t, v: val });
-          if (arr.length > 300) arr.shift();
+          const history = historyRef.current[name];
+          history.push({ t: sample.t, v: value });
+          if (history.length > 300) history.shift();
 
-          // update mini sparklines
           setSparklines((prev) => {
-            const cur = prev[name] || [];
-            const next = [...cur.slice(-24), val as number];
+            const current = prev[name] || [];
+            const next = [...current.slice(-24), value as number];
             return { ...prev, [name]: next };
           });
         }
       }
-    } else if (typ === "serial") {
-      const s = ev as { dir: string; text?: string; open?: boolean };
-      if (s.dir === "status" && typeof s.open === "boolean") {
-        setSerialOpen(s.open);
-      } else if (s.text) {
-        setSerialLogs((prev) => [...prev.slice(-100), { dir: s.dir, text: s.text || "" }]);
+    } else if (type === "serial") {
+      const serial = ev as { dir: string; text?: string; open?: boolean };
+      if (serial.dir === "status" && typeof serial.open === "boolean") {
+        setSerialOpen(serial.open);
+      } else if (serial.text) {
+        setSerialLogs((prev) => [...prev.slice(-100), { dir: serial.dir, text: serial.text || "" }]);
       }
     }
   });
 
-  // Chart setup and animation loop
-  useEffect(() => {
-    if (!chartCanvasRef.current) return;
-    const ctx = chartCanvasRef.current.getContext("2d");
-    if (!ctx) return;
-
-    const chart = new Chart(ctx, {
-      type: "line",
-      data: { datasets: [] },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        scales: {
-          x: {
-            type: "linear",
-            display: true,
-            ticks: {
-              color: "rgba(200, 205, 216, 0.4)",
-              font: { family: "JetBrains Mono, IBM Plex Mono", size: 10 },
-              callback: (val) => `${Number(val).toFixed(1)}s`,
-            },
-            grid: { color: "rgba(255, 255, 255, 0.04)" },
-          },
-          y: {
-            display: true,
-            ticks: {
-              color: "rgba(200, 205, 216, 0.4)",
-              font: { family: "JetBrains Mono, IBM Plex Mono", size: 10 },
-            },
-            grid: { color: "rgba(255, 255, 255, 0.04)" },
-          },
-        },
-        plugins: {
-          legend: {
-            display: true,
-            labels: {
-              color: "#ffffff",
-              font: { family: "Inter, sans-serif", size: 11, weight: 600 },
-              boxWidth: 10,
-              boxHeight: 10,
-              usePointStyle: true,
-              pointStyle: "circle",
-            },
-          },
-        },
-      },
-    });
-
-    chartInstanceRef.current = chart;
-
-    let animId = 0;
-    const updateChart = () => {
-      const symbols = snap?.symbols || [];
-      const datasets: any[] = symbols
-        .filter((s) => plotted[s.name] !== false)
-        .map((s, idx) => {
-          const hist = historyRef.current[s.name] || [];
-          const t0 = hist[0]?.t || 0;
-          const color = COLORS[idx % COLORS.length];
-          return {
-            label: s.name,
-            borderColor: color,
-            backgroundColor: `${color}18`, // subtle gradient area
-            borderWidth: 2,
-            pointRadius: 0,
-            fill: true,
-            tension: 0.25,
-            data: hist.map((pt) => ({ x: pt.t - t0, y: pt.v })),
-          };
-        });
-
-      // Virtual formula curves
-      formulas
-        .filter((f) => f.enabled && f.fn && f.source)
-        .forEach((f) => {
-          const hist = historyRef.current[f.source] || [];
-          const t0 = hist[0]?.t || 0;
-          const pts = hist
-            .map((pt) => {
-              const y = f.fn!(pt.v);
-              return Number.isFinite(y) ? { x: pt.t - t0, y } : null;
-            })
-            .filter(Boolean);
-          datasets.push({
-            label: `f(x): ${f.expr} [x=${f.source}]`,
-            borderColor: f.color,
-            backgroundColor: "transparent",
-            borderWidth: 1.8,
-            borderDash: [6, 4],
-            pointRadius: 0,
-            fill: false,
-            tension: 0.2,
-            data: pts as any,
-          });
-        });
-
-      // Firmware SWD plot channels (OMNISCOPE_PLOT push FIFO)
-      Object.keys(plotHistoryRef.current).forEach((name, idx) => {
-        if (plotPlotted[name] === false) return;
-        const hist = plotHistoryRef.current[name] || [];
-        if (hist.length === 0) return;
-        const t0 = hist[0]?.t || 0;
-        const color = COLORS[(idx + 4) % COLORS.length];
-        datasets.push({
-          label: `plot:${name}`,
-          borderColor: color,
-          backgroundColor: "transparent",
-          borderWidth: 1.6,
-          borderDash: [2, 2],
-          pointRadius: 0,
-          fill: false,
-          tension: 0.15,
-          data: hist.map((pt) => ({ x: pt.t - t0, y: pt.v })),
-        });
-      });
-
-      chart.data.datasets = datasets;
-      chart.update("none");
-      animId = requestAnimationFrame(updateChart);
-    };
-
-    animId = requestAnimationFrame(updateChart);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      chart.destroy();
-      chartInstanceRef.current = null;
-    };
-  }, [snap?.symbols, plotted, formulas, plotPlotted]);
-
   // Actions
-  const writeSymbol = async (name: string, val: string, fmt: string) => {
+  const writeSymbol = async (name: string, value: string, format: string) => {
     try {
       const res = await postJson<{ ok: boolean; error?: string }>(`${base}/symbols/write`, {
         name,
-        value: val,
-        fmt,
+        value,
+        fmt: format,
       });
       if (!res.ok) throw new Error(res.error || "写入失败");
       setWriteStatus((prev) => ({ ...prev, [name]: "ok" }));
@@ -619,33 +302,33 @@ export function SwdPage() {
           return next;
         });
       }, 2000);
-    } catch (e) {
-      alert(`写入变量 ${name} 失败: ${e}`);
+    } catch (error) {
+      alert(`写入变量 ${name} 失败: ${error}`);
       setWriteStatus((prev) => ({ ...prev, [name]: "err" }));
     }
   };
 
-  const writeMailboxParam = async (slot: number, val: number) => {
+  const writeMailboxParam = async (slot: number, value: number) => {
     try {
       const res = await postJson<{ ok: boolean; error?: string }>(`${base}/mailbox/write`, {
         mailbox_addr: mailboxAddr,
         slot,
-        value: val,
+        value,
       });
       if (!res.ok) throw new Error(res.error || "Mailbox 写入失败");
       const next = [...mailboxParams];
-      next[slot] = val;
+      next[slot] = value;
       setMailboxParams(next);
-    } catch (e) {
-      alert(`Mailbox 写入槽位 #${slot} 失败: ${e}`);
+    } catch (error) {
+      alert(`Mailbox 写入槽位 #${slot} 失败: ${error}`);
     }
   };
 
   const addFormula = () => {
     const expr = formulaDraft.trim();
     if (!expr) return;
-    const src = formulaSource || snap?.symbols?.[0]?.name || "";
-    if (!src) {
+    const source = formulaSource || snap?.symbols?.[0]?.name || "";
+    if (!source) {
       alert("请先选择自变量 x 对应的符号");
       return;
     }
@@ -656,24 +339,26 @@ export function SwdPage() {
         {
           id: Date.now(),
           expr,
-          source: src,
+          source,
           enabled: true,
           fn,
           color: COLORS[(prev.length + 3) % COLORS.length],
         },
       ]);
       setFormulaDraft("");
-    } catch (e) {
-      alert(`公式语法错误: ${e}`);
+    } catch (error) {
+      alert(`公式语法错误: ${error}`);
     }
   };
 
   const removeFormula = (id: number) => {
-    setFormulas((prev) => prev.filter((f) => f.id !== id));
+    setFormulas((prev) => prev.filter((formula) => formula.id !== id));
   };
 
   const toggleFormula = (id: number) => {
-    setFormulas((prev) => prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)));
+    setFormulas((prev) => prev.map((formula) => (
+      formula.id === id ? { ...formula, enabled: !formula.enabled } : formula
+    )));
   };
 
   const addSymbol = async (name: string) => {
@@ -683,8 +368,8 @@ export function SwdPage() {
       setPlotted((prev) => ({ ...prev, [name]: true }));
       setSearch("");
       setMatches([]);
-    } catch (e) {
-      alert(`添加符号失败: ${e}`);
+    } catch (error) {
+      alert(`添加符号失败: ${error}`);
     }
   };
 
@@ -693,8 +378,8 @@ export function SwdPage() {
       const res = await postJson<SwdSnapshot>(`${base}/symbols/remove`, { name });
       setSnap(res);
       delete historyRef.current[name];
-    } catch (e) {
-      alert(`移除符号失败: ${e}`);
+    } catch (error) {
+      alert(`移除符号失败: ${error}`);
     }
   };
 
@@ -709,8 +394,8 @@ export function SwdPage() {
       });
       setSnap(res);
       setShowSettings(false);
-    } catch (e) {
-      alert(`保存设置失败: ${e}`);
+    } catch (error) {
+      alert(`保存设置失败: ${error}`);
     }
   };
 
@@ -720,17 +405,20 @@ export function SwdPage() {
     setSparklines({});
   };
 
-  const writeParam = async (entry: WatchEntry, rawVal: number) => {
+  const writeParam = async (entry: WatchEntry, rawValue: number) => {
     try {
       const res = await postJson<{ ok: boolean; value?: number; error?: string }>(`${base}/watch/write`, {
         name: entry.name,
-        value: rawVal,
+        value: rawValue,
       });
       if (!res.ok) throw new Error(res.error || "写入失败");
       setParamStatus((prev) => ({ ...prev, [entry.name]: "ok" }));
       if (typeof res.value === "number") {
         setParamDraft((prev) => ({ ...prev, [entry.name]: res.value as number }));
-        setWatchValues((prev) => ({ ...prev, [entry.name]: { value: res.value as number, t: Date.now() / 1000 } }));
+        setWatchValues((prev) => ({
+          ...prev,
+          [entry.name]: { value: res.value as number, t: Date.now() / 1000 },
+        }));
       }
       setTimeout(() => {
         setParamStatus((prev) => {
@@ -739,8 +427,8 @@ export function SwdPage() {
           return next;
         });
       }, 2000);
-    } catch (e) {
-      alert(`参数 ${entry.name} 写入失败: ${e}`);
+    } catch (error) {
+      alert(`参数 ${entry.name} 写入失败: ${error}`);
       setParamStatus((prev) => ({ ...prev, [entry.name]: "err" }));
     }
   };
@@ -754,8 +442,8 @@ export function SwdPage() {
         await postJson(`${base}/serial/open`, { port: serialDevice, baud: serialBaud });
         setSerialOpen(true);
       }
-    } catch (e) {
-      alert(`串口操作失败: ${e}`);
+    } catch (error) {
+      alert(`串口操作失败: ${error}`);
     }
   };
 
@@ -768,1048 +456,155 @@ export function SwdPage() {
         newline: true,
       });
       setSerialInput("");
-    } catch (e) {
-      alert(`发送失败: ${e}`);
+    } catch (error) {
+      alert(`发送失败: ${error}`);
     }
   };
 
-  const phaseTag = useMemo(() => {
-    const ph = snap?.phase || "waiting";
-    switch (ph) {
-      case "streaming":
-        return { text: "实时监视中", cls: "s-connected" };
-      case "connecting":
-        return { text: "正在连接", cls: "s-warn" };
-      case "idle":
-        return { text: "已连接(空闲)", cls: "s-ok" };
-      case "reconnecting":
-        return { text: "重连中", cls: "s-warn" };
-      case "error":
-        return { text: "通信异常", cls: "s-err" };
-      default:
-        return { text: "等待 OpenOCD", cls: "s-idle" };
-    }
-  }, [snap?.phase]);
+  const paramCount = watchEntries.filter((entry) => entry.kind === 1).length;
 
   return (
-    <div className="feature-page" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Top HUD Status Toolbar */}
-      <div
-        className="feature-toolbar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "14px",
-          padding: "0 16px",
-          borderBottom: "1px solid var(--border)",
-          background: "rgba(10, 12, 18, 0.85)",
-          backdropFilter: "blur(16px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span className={`state-tag ${phaseTag.cls}`}>{phaseTag.text}</span>
-          <span className="mono" style={{ fontSize: "12px", color: "var(--muted)" }}>
-            {snap?.message}
-          </span>
-        </div>
+    <div className="feature-page swd-page">
+      <SwdTopBar
+        snap={snap}
+        plotDropped={plotDropped}
+        paramCount={paramCount}
+        formulaCount={formulas.length}
+        showParams={showParams}
+        showFormulas={showFormulas}
+        showMailbox={showMailbox}
+        showSettings={showSettings}
+        showSerial={showSerial}
+        onToggleParams={() => setShowParams((value) => !value)}
+        onToggleFormulas={() => setShowFormulas((value) => !value)}
+        onToggleMailbox={() => setShowMailbox((value) => !value)}
+        onToggleSettings={() => setShowSettings((value) => !value)}
+        onToggleSerial={() => setShowSerial((value) => !value)}
+      />
 
-        <div className="spacer" />
-
-        {snap?.elf && (
-          <div className="search-command-pill" title={snap.elf}>
-            <span style={{ color: "var(--faint)" }}>ELF:</span>
-            <span className="mono" style={{ color: "var(--text-strong)" }}>
-              {snap.elf.split("/").pop()}
-            </span>
-          </div>
+      <div className="swd-drawer-stack">
+        {showSettings && (
+          <SettingsDrawer
+            projectInput={projectInput}
+            hzInput={hzInput}
+            hostInput={hostInput}
+            portInput={portInput}
+            rateLimitInput={rateLimitInput}
+            onProjectChange={setProjectInput}
+            onHzChange={setHzInput}
+            onHostChange={setHostInput}
+            onPortChange={setPortInput}
+            onRateLimitChange={setRateLimitInput}
+            onSave={saveSettings}
+          />
         )}
 
-        {/* Live Metrics */}
-        <div className="status-pill">
-          <span className="pulse-dot"></span>
-          <span>{snap?.stats?.hz || 0} Hz · {snap?.stats?.rtt_p50 || 0}ms RTT</span>
-        </div>
-
-        {/* SWD bandwidth meter */}
-        <div
-          className="status-pill"
-          title={`SWD 传输速率限制: ${snap?.rate_limit_bps || 0} B/s (参数1Hz > 监视${snap?.hz || 30}Hz > plot/数组空闲)`}
-        >
-          <span
-            className="pulse-dot"
-            style={(snap?.bps_used || 0) > (snap?.rate_limit_bps || 1) * 0.9 ? { background: "var(--amber)" } : undefined}
+        {showParams && (
+          <ParamsDrawer
+            entries={watchEntries}
+            watchReady={snap?.omniscope?.watch_ok}
+            values={watchValues}
+            drafts={paramDraft}
+            statuses={paramStatus}
+            onDraftChange={(name, value) => setParamDraft((prev) => ({ ...prev, [name]: value }))}
+            onWrite={writeParam}
           />
-          <span>
-            {snap?.bps_used || 0}/{snap?.rate_limit_bps || 0} B/s
-            {plotDropped > 0 && <span style={{ color: "var(--amber)", marginLeft: 6 }}>丢点 {plotDropped}</span>}
-          </span>
-        </div>
+        )}
 
-        <button
-          type="button"
-          className="ghost"
-          style={{ fontSize: "12px", padding: "4px 10px", color: showParams ? "var(--green)" : undefined }}
-          onClick={() => setShowParams(!showParams)}
-        >
-          参数调节 {watchEntries.filter((e) => e.kind === 1).length > 0 && `(${watchEntries.filter((e) => e.kind === 1).length})`}
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          style={{ fontSize: "12px", padding: "4px 10px", color: showFormulas ? "var(--cyan)" : undefined }}
-          onClick={() => setShowFormulas(!showFormulas)}
-        >
-          ƒ(x) 虚拟公式 {formulas.length > 0 && `(${formulas.length})`}
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          style={{ fontSize: "12px", padding: "4px 10px", color: showMailbox ? "var(--amber)" : undefined }}
-          onClick={() => setShowMailbox(!showMailbox)}
-        >
-          Mailbox 调参
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          style={{ fontSize: "12px", padding: "4px 10px" }}
-          onClick={() => setShowSettings(!showSettings)}
-        >
-          参数设置
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          style={{ fontSize: "12px", padding: "4px 10px" }}
-          onClick={() => setShowSerial(!showSerial)}
-        >
-          串口监控
-        </button>
+        {showFormulas && (
+          <FormulaDrawer
+            formulas={formulas}
+            symbols={snap?.symbols || []}
+            draft={formulaDraft}
+            source={formulaSource}
+            onDraftChange={setFormulaDraft}
+            onSourceChange={setFormulaSource}
+            onAdd={addFormula}
+            onRemove={removeFormula}
+            onToggle={toggleFormula}
+          />
+        )}
+
+        {showMailbox && (
+          <MailboxDrawer
+            address={mailboxAddr}
+            values={mailboxParams}
+            onAddressChange={setMailboxAddr}
+            onValueChange={(slot, value) => {
+              const next = [...mailboxParams];
+              next[slot] = value;
+              setMailboxParams(next);
+            }}
+            onWrite={writeMailboxParam}
+          />
+        )}
       </div>
 
-      {/* Settings Drawer */}
-      {showSettings && (
-        <div
-          style={{
-            padding: "14px 20px",
-            background: "var(--surface-2)",
-            borderBottom: "1px solid var(--border)",
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr auto",
-            gap: "12px",
-            alignItems: "center",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+      <div className="swd-workspace">
+        <SymbolPanel
+          snap={snap}
+          search={search}
+          matches={matches}
+          searching={searching}
+          searchErr={searchErr}
+          watchEntries={watchEntries}
+          watchValues={watchValues}
+          watchArrays={watchArrays}
+          arrayExpanded={arrayExpanded}
+          historyRef={historyRef}
+          sparklines={sparklines}
+          plotted={plotted}
+          fieldMode={fieldMode}
+          editingSymbol={editingSymbol}
+          editVal={editVal}
+          writeStatus={writeStatus}
+          onSearchChange={setSearch}
+          onAddSymbol={addSymbol}
+          onRemoveSymbol={removeSymbol}
+          onToggleArray={(name, expanded) => setArrayExpanded((prev) => ({ ...prev, [name]: expanded }))}
+          onTogglePlot={(name, enabled) => setPlotted((prev) => ({ ...prev, [name]: enabled }))}
+          onModeChange={(name, mode) => setFieldMode((prev) => ({ ...prev, [name]: mode }))}
+          onStartEdit={(name, value) => {
+            setEditingSymbol(name);
+            setEditVal(value);
           }}
+          onEditValueChange={setEditVal}
+          onCancelEdit={() => setEditingSymbol(null)}
+          onWriteSymbol={writeSymbol}
+        />
+
+        <ChartPanel
+          symbols={snap?.symbols}
+          plotted={plotted}
+          formulas={formulas}
+          plotChNames={plotChNames}
+          plotPlotted={plotPlotted}
+          historyRef={historyRef}
+          plotHistoryRef={plotHistoryRef}
+          isPaused={isPaused}
+          onTogglePaused={() => setIsPaused((value) => !value)}
+          onTogglePlotChannel={(name, enabled) => setPlotPlotted((prev) => ({ ...prev, [name]: enabled }))}
+          onClear={clearChart}
         >
-          <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
-              固件工程目录 (含 ELF)
-            </label>
-            <input
-              style={{ width: "100%", fontSize: "12px" }}
-              value={projectInput}
-              onChange={(e) => setProjectInput(e.target.value)}
-              placeholder="/path/to/firmware"
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
-              采样速率 (Hz)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              style={{ width: "100%", fontSize: "12px" }}
-              value={hzInput}
-              onChange={(e) => setHzInput(Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
-              OpenOCD Host
-            </label>
-            <input
-              style={{ width: "100%", fontSize: "12px" }}
-              value={hostInput}
-              onChange={(e) => setHostInput(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
-              Telnet 端口
-            </label>
-            <input
-              style={{ width: "100%", fontSize: "12px" }}
-              value={portInput}
-              placeholder="4444 (留空自动探测)"
-              onChange={(e) => setPortInput(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: 3 }}>
-              速率限制 (B/s)
-            </label>
-            <input
-              type="number"
-              min={512}
-              max={1048576}
-              style={{ width: "100%", fontSize: "12px" }}
-              value={rateLimitInput}
-              onChange={(e) => setRateLimitInput(Number(e.target.value))}
-            />
-          </div>
-          <button type="button" className="primary" style={{ alignSelf: "flex-end", height: "32px" }} onClick={saveSettings}>
-            应用变更
-          </button>
-        </div>
-      )}
-
-      {/* OmniScope Parameter Tuning Drawer (firmware-declared params, 1Hz echo) */}
-      {showParams && (
-        <div
-          style={{
-            padding: "14px 20px",
-            background: "rgba(12, 20, 18, 0.98)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--green)" }}>
-              固件参数实时调节 (omniscope_watch · 滑杆直写 mww · 1Hz 回显)
-            </span>
-            <span className="mono" style={{ fontSize: "11px", color: "var(--muted)" }}>
-              {snap?.omniscope?.watch_ok ? `已发现 ${watchEntries.filter((e) => e.kind === 1).length} 个参数` : "等待固件监视表…"}
-            </span>
-          </div>
-
-          {watchEntries.filter((e) => e.kind === 1).length === 0 && (
-            <div style={{ fontSize: 12, color: "var(--faint)", padding: "8px 0" }}>
-              固件未注册参数项。在代码中调用 omniscope_watch_register_param() 注册后自动出现。
-            </div>
-          )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "10px" }}>
-            {watchEntries
-              .filter((e) => e.kind === 1)
-              .map((e) => {
-                const cur = watchValues[e.name]?.value ?? 0;
-                const draft = paramDraft[e.name] ?? cur;
-                const hasRange = e.max > e.min;
-                const status = paramStatus[e.name];
-                return (
-                  <div
-                    key={e.name}
-                    style={{
-                      background: "rgba(0,0,0,0.35)",
-                      border: `1px solid ${status === "ok" ? "var(--green)" : status === "err" ? "var(--err)" : "var(--hairline)"}`,
-                      borderRadius: 6,
-                      padding: "8px 12px",
-                      transition: "border-color 0.3s ease",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                      <span className="mono" style={{ fontSize: 12, fontWeight: 600, color: "var(--green)" }}>{e.name}</span>
-                      <span className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>
-                        {e.elem_name} · {fmtHex(e.ptr)} · 可写
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {hasRange && (
-                        <input
-                          type="range"
-                          style={{ flex: 1 }}
-                          min={e.min}
-                          max={e.max}
-                          step={e.step > 0 ? e.step : (e.max - e.min) / 100}
-                          value={draft}
-                          onChange={(ev) => setParamDraft((prev) => ({ ...prev, [e.name]: Number(ev.target.value) }))}
-                          onPointerUp={() => writeParam(e, paramDraft[e.name] ?? cur)}
-                          onKeyUp={(ev) => {
-                            if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") writeParam(e, paramDraft[e.name] ?? cur);
-                          }}
-                        />
-                      )}
-                      <input
-                        type="number"
-                        className="mono"
-                        style={{ width: 90, fontSize: 12, padding: "2px 4px" }}
-                        min={hasRange ? e.min : undefined}
-                        max={hasRange ? e.max : undefined}
-                        step={e.step > 0 ? e.step : undefined}
-                        value={draft}
-                        onChange={(ev) => setParamDraft((prev) => ({ ...prev, [e.name]: Number(ev.target.value) }))}
-                        onBlur={() => writeParam(e, paramDraft[e.name] ?? cur)}
-                        onKeyDown={(ev) => {
-                          if (ev.key === "Enter") writeParam(e, paramDraft[e.name] ?? cur);
-                        }}
-                      />
-                      <span className="mono" style={{ fontSize: 11, color: "var(--muted)", minWidth: 64, textAlign: "right" }}>
-                        回显 {cur.toFixed(3)}
-                      </span>
-                    </div>
-                    {hasRange && (
-                      <div className="mono" style={{ fontSize: 9, color: "var(--faint)", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                        <span>{e.min}</span>
-                        <span>step {e.step > 0 ? e.step : "free"}</span>
-                        <span>{e.max}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      {/* Formula Virtual Channels Drawer */}
-      {showFormulas && (
-        <div
-          style={{
-            padding: "12px 20px",
-            background: "rgba(14, 18, 28, 0.95)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-          }}
-        >
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--cyan)" }}>
-              ƒ(x) 新建虚拟曲线:
-            </span>
-            <input
-              style={{ flex: 1, fontSize: "12px" }}
-              placeholder="输入数学表达式，例如: sin(x)   2*x   x^2   x*57.2958 (弧度转角度)   x*0.001"
-              value={formulaDraft}
-              onChange={(e) => setFormulaDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") addFormula();
-              }}
-            />
-            <select
-              style={{ width: "160px", fontSize: "12px" }}
-              value={formulaSource}
-              onChange={(e) => setFormulaSource(e.target.value)}
-            >
-              <option value="">选择自变量 x 来源...</option>
-              {snap?.symbols?.map((s) => (
-                <option key={s.name} value={s.name}>
-                  x = {s.name}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="primary" onClick={addFormula}>
-              + 添加通道
-            </button>
-          </div>
-
-          {formulas.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
-              {formulas.map((f) => (
-                <div
-                  key={f.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    background: "rgba(255,255,255,0.06)",
-                    border: `1px solid ${f.color}66`,
-                    padding: "3px 8px",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={f.enabled}
-                    onChange={() => toggleFormula(f.id)}
-                    title="在图表中显示/隐藏"
-                  />
-                  <code style={{ color: f.color, fontWeight: 600 }}>{f.expr}</code>
-                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>({f.source})</span>
-                  <button
-                    type="button"
-                    className="ghost"
-                    style={{ padding: "0 4px", fontSize: "12px", color: "var(--faint)" }}
-                    onClick={() => removeFormula(f.id)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MCU Mailbox Parameter Tuning Drawer */}
-      {showMailbox && (
-        <div
-          style={{
-            padding: "14px 20px",
-            background: "rgba(18, 22, 34, 0.98)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--amber)" }}>
-                MCU Mailbox 实时调参面板 (omniscope_mailbox_t)
-              </span>
-              <span className="mono" style={{ fontSize: "11px", color: "var(--muted)" }}>
-                零停机·SWD非侵入式热整定·支持16槽位
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "11px", color: "var(--muted)" }}>基地址:</span>
-              <input
-                className="mono"
-                style={{ width: "120px", fontSize: "12px", padding: "2px 6px" }}
-                value={mailboxAddr}
-                onChange={(e) => setMailboxAddr(e.target.value)}
-                placeholder="0x20000000"
-              />
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(8, 1fr)",
-              gap: "8px",
-            }}
-          >
-            {mailboxParams.map((val, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: "rgba(0,0,0,0.35)",
-                  border: "1px solid var(--hairline)",
-                  borderRadius: "4px",
-                  padding: "6px 8px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "4px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--faint)" }}>
-                  <span>P[{idx}]</span>
-                  <span className="mono">{val.toFixed(3)}</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="mono"
-                  style={{ width: "100%", fontSize: "12px", padding: "2px 4px" }}
-                  value={val}
-                  onChange={(e) => {
-                    const next = [...mailboxParams];
-                    next[idx] = parseFloat(e.target.value) || 0;
-                    setMailboxParams(next);
-                  }}
-                  onBlur={() => writeMailboxParam(idx, mailboxParams[idx])}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") writeMailboxParam(idx, mailboxParams[idx]);
-                  }}
-                />
-                <button
-                  type="button"
-                  style={{ fontSize: "10px", padding: "1px 0", height: "20px" }}
-                  onClick={() => writeMailboxParam(idx, mailboxParams[idx])}
-                >
-                  写入
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-
-      {/* Main Workspace Split: Left Symbol Watcher, Right Oscilloscope */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Left Side: Symbol Watcher Card Table */}
-        <div
-          style={{
-            width: "390px",
-            borderRight: "1px solid var(--border)",
-            background: "rgba(12, 14, 20, 0.7)",
-            backdropFilter: "blur(16px)",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-          }}
-        >
-          {/* Symbol Search Bar */}
-          <div style={{ padding: "12px", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ position: "relative" }}>
-              <input
-                style={{
-                  width: "100%",
-                  padding: "7px 12px",
-                  fontSize: "12px",
-                  background: "rgba(255,255,255,0.03)",
-                  borderColor: "var(--border-light)",
-                  borderRadius: "6px",
-                }}
-                placeholder="搜索全局符号 (nm -S)..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {searching && (
-                <span style={{ position: "absolute", right: "12px", top: "8px", fontSize: "11px", color: "var(--cyan)" }}>
-                  检索中…
-                </span>
-              )}
-            </div>
-
-            {searchErr && (
-              <p style={{ margin: "6px 0 0", color: "var(--err)", fontSize: "11px" }}>{searchErr}</p>
-            )}
-
-            {/* Match suggestions */}
-            {matches.length > 0 && (
-              <div
-                style={{
-                  maxHeight: "180px",
-                  overflowY: "auto",
-                  marginTop: "8px",
-                  background: "var(--elevated)",
-                  border: "1px solid var(--border-light)",
-                  borderRadius: "6px",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-                }}
-              >
-                {matches.map((m) => (
-                  <div
-                    key={m.name}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "8px 10px",
-                      borderBottom: "1px solid var(--hairline)",
-                    }}
-                  >
-                    <div>
-                      <div className="mono" style={{ fontWeight: 600, color: "var(--text-strong)", fontSize: "12px" }}>
-                        {m.name}
-                      </div>
-                      <div className="mono" style={{ fontSize: "10px", color: "var(--muted)" }}>
-                        0x{m.addr.toString(16).toUpperCase()} · {m.size}B {m.file ? `· ${m.file}` : ""}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      style={{ padding: "2px 8px", fontSize: "11px" }}
-                      onClick={() => addSymbol(m.name)}
-                    >
-                      + 监视
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Firmware Watch Table (OmniScope auto-discovered) */}
-          {watchEntries.length > 0 && (
-            <div style={{ borderBottom: "1px solid var(--border)", maxHeight: "46%", overflowY: "auto", padding: "10px" }}>
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  color: "var(--faint)",
-                  padding: "2px 4px 8px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  letterSpacing: "0.05em",
-                  textTransform: "uppercase",
-                }}
-              >
-                <span>固件监视表 ({watchEntries.length})</span>
-                <span style={{ color: snap?.omniscope?.watch_ok ? "var(--green)" : "var(--amber)" }}>
-                  {snap?.omniscope?.watch_ok ? "已连接" : "探测中"}
-                </span>
-              </div>
-
-              {watchEntries.map((e) => {
-                if (e.kind === 1) return null; // params live in the tuning drawer
-                const isArr = e.is_array;
-                const val = watchValues[e.name]?.value;
-                const arrPayload = watchArrays[e.name];
-                const expanded = arrayExpanded[e.name] ?? isArr;
-                return (
-                  <div
-                    key={e.name}
-                    style={{
-                      background: "rgba(14, 18, 26, 0.75)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      padding: "8px 12px",
-                      marginBottom: 8,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span className="mono" style={{ fontWeight: 600, color: "var(--cyan)", fontSize: 12 }}>
-                        {e.name}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 9,
-                          padding: "1px 6px",
-                          borderRadius: 3,
-                          background: "rgba(255,255,255,0.06)",
-                          color: "var(--muted)",
-                        }}
-                      >
-                        只读
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                      {isArr ? (
-                        <>
-                          <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-                            {e.elem_name}[{e.rows}×{e.cols}] · {e.nbytes}B
-                            {arrPayload && <span style={{ color: "var(--green)", marginLeft: 6 }}>已更新</span>}
-                          </span>
-                          <button
-                            type="button"
-                            className="ghost"
-                            style={{ fontSize: 10, padding: "1px 8px" }}
-                            onClick={() => setArrayExpanded((prev) => ({ ...prev, [e.name]: !expanded }))}
-                          >
-                            {expanded ? "收起" : "热图"}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="mono" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-strong)" }}>
-                            {val !== undefined ? (Number.isInteger(val) ? val : Number(val).toFixed(4)) : "---"}
-                          </span>
-                          <MiniSparkline
-                            data={(historyRef.current[`watch:${e.name}`] || []).slice(-25).map((p) => p.v)}
-                            color="var(--cyan)"
-                          />
-                        </>
-                      )}
-                    </div>
-                    <div className="mono" style={{ fontSize: 9, color: "var(--faint)", marginTop: 4 }}>
-                      {e.elem_name} · {fmtHex(e.ptr)}
-                      {isArr && " · 版本门控·空闲刷新"}
-                    </div>
-                    {isArr && expanded && arrPayload && <ArrayView payload={arrPayload} />}
-                    {isArr && expanded && !arrPayload && (
-                      <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 6 }}>等待空闲带宽拉取…</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Active Watched Symbols List */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
-            <div
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: "var(--faint)",
-                padding: "2px 4px 8px",
-                display: "flex",
-                justifyContent: "space-between",
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-              }}
-            >
-              <span>监视符号 ({snap?.symbols?.length || 0}/8)</span>
-              <span>走势 · 解析</span>
-            </div>
-
-            {(!snap?.symbols || snap.symbols.length === 0) && (
-              <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--faint)" }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)" }}>暂无监视变量</div>
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "4px" }}>
-                  在上方输入变量名进行模糊匹配添加
-                </div>
-              </div>
-            )}
-
-            {snap?.symbols?.map((row, idx) => {
-              const color = COLORS[idx % COLORS.length];
-              const mode = fieldMode[row.name] || (row.f32 !== null && row.f32 !== undefined ? "f32" : "u32");
-              let valDisplay = "---";
-              if (row.error) {
-                valDisplay = `Err: ${row.error}`;
-              } else if (mode === "f32" && typeof row.f32 === "number") {
-                valDisplay = row.f32.toFixed(4);
-              } else if (mode === "i32" && typeof row.i32 === "number") {
-                valDisplay = String(row.i32);
-              } else if (mode === "hex" && row.words?.length) {
-                valDisplay = `0x${row.words[0]}`;
-              } else if (typeof row.u32 === "number") {
-                valDisplay = String(row.u32);
-              }
-
-              return (
-                <div
-                  key={row.name}
-                  style={{
-                    background: "rgba(18, 21, 30, 0.75)",
-                    border: `1px solid ${plotted[row.name] !== false ? `${color}55` : "var(--border)"}`,
-                    borderRadius: "6px",
-                    padding: "10px 12px",
-                    marginBottom: "8px",
-                    transition: "all 0.15s ease",
-                    boxShadow: plotted[row.name] !== false ? `0 2px 10px ${color}15` : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <input
-                        type="checkbox"
-                        checked={plotted[row.name] !== false}
-                        onChange={(e) => setPlotted({ ...plotted, [row.name]: e.target.checked })}
-                        title="在右侧示波器绘制曲线"
-                      />
-                      <span className="mono" style={{ fontWeight: 600, color, fontSize: "13px" }}>
-                        {row.name}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ padding: "0 4px", fontSize: "14px", color: "var(--faint)" }}
-                      onClick={() => removeSymbol(row.name)}
-                      title="移除监视"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  {/* Main Value and Sparkline Row */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginTop: "8px",
-                    }}
-                  >
-                    {editingSymbol === row.name ? (
-                      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-                        <input
-                          type="text"
-                          className="mono"
-                          style={{
-                            width: "95px",
-                            height: "24px",
-                            fontSize: "13px",
-                            padding: "0 4px",
-                            background: "var(--input)",
-                            color: "var(--cyan)",
-                          }}
-                          value={editVal}
-                          autoFocus
-                          onChange={(e) => setEditVal(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") writeSymbol(row.name, editVal, mode);
-                            if (e.key === "Escape") setEditingSymbol(null);
-                          }}
-                        />
-                        <button
-                          type="button"
-                          style={{ padding: "0 6px", height: "24px", fontSize: "11px" }}
-                          onClick={() => writeSymbol(row.name, editVal, mode)}
-                        >
-                          写入
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost"
-                          style={{ padding: "0 4px", height: "24px", fontSize: "11px" }}
-                          onClick={() => setEditingSymbol(null)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                        style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
-                        title="点击在线热改写变量值 (mww 无须暂停 CPU)"
-                        onClick={() => {
-                          setEditingSymbol(row.name);
-                          setEditVal(valDisplay.startsWith("Err") ? "0" : valDisplay);
-                        }}
-                      >
-                        <span
-                          className="mono"
-                          style={{
-                            fontSize: "17px",
-                            fontWeight: 700,
-                            color:
-                              writeStatus[row.name] === "ok"
-                                ? "var(--green)"
-                                : writeStatus[row.name] === "err"
-                                ? "var(--err)"
-                                : "var(--text-strong)",
-                            letterSpacing: "-0.02em",
-                            transition: "color 0.3s ease",
-                          }}
-                        >
-                          {valDisplay}
-                        </span>
-                        <span style={{ fontSize: "10px", color: "var(--cyan)", opacity: 0.8 }} title="在线热改写">
-                          [改写]
-                        </span>
-                        {writeStatus[row.name] === "ok" && (
-                          <span style={{ fontSize: "10px", color: "var(--green)" }}>[已改写]</span>
-                        )}
-                      </div>
-                    )}
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      {/* Mini Sparkline */}
-                      <MiniSparkline data={sparklines[row.name] || []} color={color} />
-
-                      {/* Mode selector */}
-                      <select
-                        style={{ fontSize: "11px", height: "24px", padding: "0 4px", background: "var(--input)" }}
-                        value={mode}
-                        onChange={(e) => setFieldMode({ ...fieldMode, [row.name]: e.target.value as any })}
-                      >
-                        <option value="f32">f32</option>
-                        <option value="i32">i32</option>
-                        <option value="u32">u32</option>
-                        <option value="hex">hex</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Metadata address and latency */}
-                  <div
-                    className="mono"
-                    style={{
-                      display: "flex",
-                      gap: "10px",
-                      fontSize: "10px",
-                      color: "var(--muted)",
-                      marginTop: "6px",
-                    }}
-                  >
-                    {row.addr && <span>{row.addr}</span>}
-                    {row.size && <span>{row.size}B</span>}
-                    {row.rtt_ms && <span style={{ color: "var(--cyan)" }}>{row.rtt_ms}ms</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Side: Oscilloscope Waveform Display */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "8px 16px",
-              borderBottom: "1px solid var(--border)",
-              background: "rgba(10, 12, 18, 0.8)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-strong)" }}>
-                实时发光示波器 (Oscilloscope)
-              </span>
-              <span className="mono" style={{ fontSize: "11px", color: "var(--faint)" }}>
-                · 滚屏波形实时渲染
-              </span>
-              {Object.values(plotChNames).length > 0 && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
-                  <span style={{ fontSize: 10, color: "var(--faint)" }}>固件plot:</span>
-                  {Object.entries(plotChNames).map(([idx, name], i) => (
-                    <label
-                      key={idx}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 3,
-                        fontSize: 10,
-                        color: COLORS[(i + 4) % COLORS.length],
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={plotPlotted[name] !== false}
-                        onChange={(ev) => setPlotPlotted((prev) => ({ ...prev, [name]: ev.target.checked }))}
-                      />
-                      {name}
-                    </label>
-                  ))}
-                </span>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                className="ghost"
-                style={{ fontSize: "11px", padding: "3px 10px" }}
-                onClick={() => setIsPaused(!isPaused)}
-              >
-                {isPaused ? "恢复" : "暂停"}
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                style={{ fontSize: "11px", padding: "3px 10px" }}
-                onClick={clearChart}
-              >
-                清空波形
-              </button>
-            </div>
-          </div>
-
-          <div
-            style={{
-              flex: 1,
-              position: "relative",
-              padding: "14px",
-              minHeight: 0,
-              background: "radial-gradient(ellipse at center, rgba(0,240,255,0.02) 0%, #06070a 100%)",
-            }}
-          >
-            <canvas ref={chartCanvasRef} />
-          </div>
-
-          {/* Retractable Serial Console */}
           {showSerial && (
-            <div
-              style={{
-                height: "230px",
-                borderTop: "1px solid var(--border)",
-                background: "rgba(8, 10, 16, 0.95)",
-                backdropFilter: "blur(16px)",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "6px 12px",
-                  borderBottom: "1px solid var(--border)",
-                  fontSize: "12px",
-                }}
-              >
-                <span style={{ fontWeight: 600, color: "var(--cyan)" }}>硬件串口终端:</span>
-                <select
-                  style={{ fontSize: "11px", height: "26px" }}
-                  value={serialDevice}
-                  onChange={(e) => setSerialDevice(e.target.value)}
-                >
-                  <option value="">选择串口设备</option>
-                  {serialPorts.map((p) => (
-                    <option key={p.device} value={p.device}>
-                      {p.device} ({p.description})
-                    </option>
-                  ))}
-                </select>
-                <select
-                  style={{ fontSize: "11px", height: "26px" }}
-                  value={serialBaud}
-                  onChange={(e) => setSerialBaud(Number(e.target.value))}
-                >
-                  <option value={9600}>9600</option>
-                  <option value={115200}>115200</option>
-                  <option value={921600}>921600</option>
-                  <option value={2000000}>2000000</option>
-                </select>
-                <button
-                  type="button"
-                  style={{ fontSize: "11px", height: "26px", padding: "0 10px" }}
-                  onClick={toggleSerial}
-                >
-                  {serialOpen ? "断开" : "连接串口"}
-                </button>
-                <div style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  className="ghost"
-                  style={{ fontSize: "11px", height: "26px" }}
-                  onClick={() => setSerialLogs([])}
-                >
-                  清屏
-                </button>
-              </div>
-
-              <div
-                className="mono"
-                style={{
-                  flex: 1,
-                  overflowY: "auto",
-                  padding: "8px 12px",
-                  fontSize: "11px",
-                  background: "#050609",
-                }}
-              >
-                {serialLogs.map((item, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      lineHeight: "1.6",
-                      color: item.dir === "tx" ? "var(--green)" : item.dir === "error" ? "var(--err)" : "var(--text)",
-                    }}
-                  >
-                    <span style={{ color: "var(--faint)", marginRight: "8px" }}>
-                      {item.dir === "tx" ? "[TX →]" : "[RX ←]"}
-                    </span>
-                    {item.text}
-                  </div>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: "8px",
-                  padding: "6px 12px",
-                  borderTop: "1px solid var(--border)",
-                  background: "var(--surface)",
-                }}
-              >
-                <input
-                  style={{ flex: 1, fontSize: "12px", height: "28px" }}
-                  placeholder={serialHex ? "16进制发送 (如: 01 02 A3)..." : "发送控制文本..."}
-                  value={serialInput}
-                  onChange={(e) => setSerialInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && sendSerial()}
-                />
-                <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--muted)" }}>
-                  <input type="checkbox" checked={serialHex} onChange={(e) => setSerialHex(e.target.checked)} />
-                  HEX
-                </label>
-                <button type="button" className="primary" style={{ height: "28px", padding: "0 12px" }} onClick={sendSerial}>
-                  发送
-                </button>
-              </div>
-            </div>
+            <SerialPanel
+              ports={serialPorts}
+              device={serialDevice}
+              baud={serialBaud}
+              open={serialOpen}
+              logs={serialLogs}
+              input={serialInput}
+              hex={serialHex}
+              onDeviceChange={setSerialDevice}
+              onBaudChange={setSerialBaud}
+              onToggle={toggleSerial}
+              onClear={() => setSerialLogs([])}
+              onInputChange={setSerialInput}
+              onHexChange={setSerialHex}
+              onSend={sendSerial}
+            />
           )}
-        </div>
+        </ChartPanel>
       </div>
     </div>
   );

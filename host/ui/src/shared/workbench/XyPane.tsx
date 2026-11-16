@@ -46,7 +46,7 @@ export function XyPane({
           {
             label: channel,
             data: [],
-            borderColor: "#00f0ff",
+            borderColor: "#4fc3f7",
             backgroundColor: "transparent",
             pointRadius: 0,
             borderWidth: 1.6,
@@ -96,7 +96,7 @@ export function XyPane({
               const px = ch.scales.x.getPixelForValue(pk.x);
               const py = ch.scales.y.getPixelForValue(pk.y);
               if (px >= area.left && px <= area.right && py >= area.top && py <= area.bottom) {
-                ctx.fillStyle = "#f59e0b";
+                ctx.fillStyle = "#e0b15a";
                 ctx.beginPath();
                 ctx.moveTo(px, py);
                 ctx.lineTo(px - 5, py + 8);
@@ -127,10 +127,18 @@ export function XyPane({
       lastH = h;
       chart.resize(w, h);
     };
-    const ro = new ResizeObserver(fit);
+    let resizeFrame = 0;
+    const ro = new ResizeObserver(() => {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        fit();
+      });
+    });
     ro.observe(host);
     fit();
     return () => {
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       ro.disconnect();
       chart.destroy();
       chartRef.current = null;
@@ -168,19 +176,8 @@ export function XyPane({
     <div className="plot-host" ref={hostRef}>
       <canvas ref={canvasRef} />
       {!curve && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--muted)",
-            fontSize: 12,
-            pointerEvents: "none",
-          }}
-        >
-          {channel ? `等待 XY 曲线数据: ${channel}…` : "等待 XY 曲线通道…"}
+        <div className="pane-empty mono muted">
+          {channel ? `等待 XY 曲线数据：${channel}…` : "等待 XY 曲线通道…"}
         </div>
       )}
     </div>

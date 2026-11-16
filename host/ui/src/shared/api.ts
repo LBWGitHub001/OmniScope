@@ -14,11 +14,11 @@ async function req<T = unknown>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function listFeatures() {
-  return req<{ features: import("./types").FeatureMeta[] }>("/api/features");
+  return req<{ features: import("../features/types").FeatureMeta[] }>("/api/features");
 }
 
 export function listInstances() {
-  return req<{ instances: Array<import("./types").FeatureStatus & { feature: string; instance: string; title: string }> }>(
+  return req<{ instances: Array<import("../features/types").FeatureStatus & { feature: string; instance: string; title: string }> }>(
     "/api/instances"
   );
 }
@@ -31,11 +31,11 @@ export function openFeature(feature: string, config: Record<string, unknown> = {
 }
 
 export function featureStatus(id: string) {
-  return req<import("./types").FeatureStatus & { feature?: string }>(`/api/instances/${id}/status`);
+  return req<import("../features/types").FeatureStatus & { feature?: string }>(`/api/instances/${id}/status`);
 }
 
 export function startFeature(id: string, config: Record<string, unknown> = {}) {
-  return req<import("./types").FeatureStatus>(`/api/instances/${id}/start`, {
+  return req<import("../features/types").FeatureStatus>(`/api/instances/${id}/start`, {
     method: "POST",
     body: JSON.stringify(config),
   });

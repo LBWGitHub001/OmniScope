@@ -4,7 +4,7 @@ import { FEATURE_MODULES } from "../features/registry";
 import { featureStatus, getJson, listInstances, openFeature } from "../shared/api";
 import { InstanceProvider } from "../shared/instance";
 import { featureFromApp } from "../shared/robotFeature";
-import { ChangkongLogo } from "../shared/ChangkongLogo";
+import { AppShell } from "./AppShell";
 
 type Row = {
   instance: string;
@@ -27,235 +27,162 @@ type Robot = {
 
 const HOME_TOOLS = FEATURE_MODULES.filter((m) => m.id !== "watch");
 
-function LogoIcon() {
-  return (
-    <svg className="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2" />
-      <line x1="12" y1="22" x2="12" y2="15.5" />
-      <polyline points="22 8.5 12 15.5 2 8.5" />
-      <polyline points="2 15.5 12 8.5 22 15.5" />
-      <line x1="12" y1="2" x2="12" y2="8.5" />
-    </svg>
-  );
-}
-
 export function HomePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [robots, setRobots] = useState<Robot[]>([]);
   const [err, setErr] = useState("");
   const [manual, setManual] = useState("");
+  const [hubOnline, setHubOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
     let dead = false;
     const tick = async () => {
       try {
-        const r = await listInstances();
-        if (!dead) setRows(r.instances || []);
-        const bots = await getJson<{ robots: Robot[] }>("/api/robots");
-        if (!dead) setRobots(bots.robots || []);
+        const [instances, discovered] = await Promise.all([
+          listInstances(),
+          getJson<{ robots: Robot[] }>("/api/robots"),
+        ]);
+        if (dead) return;
+        setRows(instances.instances || []);
+        setRobots(discovered.robots || []);
+        setHubOnline(true);
       } catch {
-        /* hub down */
+        if (!dead) setHubOnline(false);
       }
     };
     tick();
-    const t = setInterval(tick, 2000);
+    const timer = setInterval(tick, 2000);
     return () => {
       dead = true;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, []);
 
   const open = async (feature: string, config: Record<string, unknown> = {}) => {
     setErr("");
     try {
-      const r = await openFeature(feature, config);
+      const result = await openFeature(feature, config);
       const senderParam = config.sender ? `&sender=${encodeURIComponent(String(config.sender))}` : "";
-      const url = r.path ? `${r.path}?feature=${feature}${senderParam}` : r.path;
-      const w = window.open(url, "_blank");
-      if (!w) setErr("浏览器拦截了新窗口，请允许弹窗后重试");
-    } catch (e) {
-      setErr(String(e));
+      const url = result.path ? `${result.path}?feature=${feature}${senderParam}` : result.path;
+      const popup = window.open(url, "_blank");
+      if (!popup) setErr("浏览器拦截了新窗口，请允许弹窗后重试");
+    } catch (error) {
+      setErr(String(error));
     }
   };
 
-  const openRobot = (r: Robot) => {
-    const feat =
-      r.feature === "calibrate" || r.feature === "watch"
-        ? r.feature
-        : featureFromApp(r.app);
-    open(feat, { sender: r.name });
+  const openRobot = (robot: Robot) => {
+    const feature =
+      robot.feature === "calibrate" || robot.feature === "watch"
+        ? robot.feature
+        : featureFromApp(robot.app);
+    open(feature, { sender: robot.name });
   };
 
   const openManual = () => {
     const name = manual.trim();
     if (!name) return;
-    const known = robots.find((r) => r.name === name);
+    const known = robots.find((robot) => robot.name === name);
     if (known) openRobot(known);
     else open("watch", { sender: name });
   };
 
+  const status = hubOnline === false ? "Hub 离线" : rows.length ? `${rows.length} 个页面` : "无打开页面";
+
   return (
-    <div className="app-shell">
-      {/* Topbar */}
-      <header className="topbar">
-        <div className="brand-group">
-          <LogoIcon />
-          <span className="brand">OmniScope</span>
-        </div>
-        <span className="topbar-sep" />
-        <ChangkongLogo size="sm" showText={true} />
-        <div className="spacer" />
-        <div className="status-pill">
-          <span className="pulse-dot"></span>
-          <span>Hub 在线 · {rows.length ? `${rows.length} 活跃线程` : "就绪"}</span>
-        </div>
-      </header>
+    <AppShell title="Host" status={status} statusTone={hubOnline === false ? "error" : "neutral"}>
+      <div className="home">
+        <header className="page-head">
+          <h1>调试入口</h1>
+          <p className="sub">每个功能在独立页面和线程中运行，可以同时打开多个实例。</p>
+        </header>
+        {err && <p className="err-text">{err}</p>}
 
-      {/* Main Container */}
-      <div className="main">
-        <div className="home">
-          {/* NUAA ChangKong YuFeng RoboMaster Tribute Banner */}
-          <div className="team-tribute-banner">
-            <div className="team-tribute-badge">
-              <ChangkongLogo size="md" showText={false} />
-              <div className="team-tribute-text">
-                <h3>
-                  <span>南京航空航天大学 · 长空御风战队</span>
-                  <span className="ck-tag-rm">ROBOMASTER 2026</span>
-                </h3>
-                <p>NUAA CHANGKONG YUFENG ROBOMASTER TEAM · 专属集成调试工作站</p>
-              </div>
-            </div>
-            <div className="team-tribute-tags">
-              <span className="team-tribute-tag tag-cyan">实时遥测 & SWD 探针</span>
-              <span className="team-tribute-tag tag-amber">视觉标定 & 回放工作台</span>
-            </div>
+        <section className="block">
+          <div className="sec-label">功能</div>
+          <div className="launcher">
+            {HOME_TOOLS.map((module) => (
+              <button key={module.id} type="button" className="tool" onClick={() => open(module.id)}>
+                <span className="tool-id">{module.id}</span>
+                <span className="tool-body">
+                  <span className="tool-title">{module.title}</span>
+                  <span className="tool-desc">{module.description}</span>
+                </span>
+                <span className="tool-go">新窗口</span>
+              </button>
+            ))}
           </div>
+        </section>
 
-          <header className="page-head">
-            <h1>集成调试控制台</h1>
-            <p className="sub">
-              面向机器人与嵌入式系统的全景观测视窗。每个功能均在独立线程与独立页面中运行，互不干扰。
-            </p>
-          </header>
-
-          {err && <p className="err-text">{err}</p>}
-
-          {/* Feature Grid */}
-          <section className="block">
-            <div className="sec-label">调试工具矩阵 (Debugging Modules)</div>
-            <div className="tool-grid">
-              {HOME_TOOLS.map((m) => (
-                <div key={m.id} className="tool-card" onClick={() => open(m.id)}>
-                  <div className="tool-card-head">
-                    <span className="tool-card-id">{m.id.toUpperCase()}</span>
-                    <span style={{ fontSize: "11px", color: "var(--muted)" }}>新窗口 ↗</span>
-                  </div>
-                  <div className="tool-card-title">{m.title}</div>
-                  <div className="tool-card-desc">{m.description}</div>
-                  <div className="tool-card-action">
-                    <span>启动模块</span>
-                    <span style={{ fontSize: "13px" }}>→</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Connected Robots Section */}
-          <section className="block">
-            <div className="sec-label">在线车辆 / 边缘设备 (Discovered Targets)</div>
-            {robots.length > 0 ? (
-              <div className="robot-grid">
-                {robots.map((r) => {
-                  const feat =
-                    r.feature === "calibrate" || r.feature === "watch"
-                      ? r.feature
-                      : featureFromApp(r.app);
-                  return (
-                    <div key={r.name} className="robot-card" onClick={() => openRobot(r)}>
-                      <div className="robot-info">
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span className="pulse-dot"></span>
-                          <span className="robot-name">{r.name}</span>
-                          {r.app && r.app !== "normal" && (
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                background: "var(--amber-dim)",
-                                color: "var(--amber)",
-                                padding: "1px 4px",
-                                borderRadius: "3px",
-                              }}
-                            >
-                              {r.app}
-                            </span>
-                          )}
-                        </div>
-                        <span className="robot-meta">
-                          {r.ip} · UDP {r.data_port || 15001}
-                        </span>
-                      </div>
-                      <button type="button" className="ghost" style={{ fontSize: "12px", color: "var(--cyan)" }}>
-                        打开 {feat} ↗
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="empty">
-                局域网内暂未发现广播车辆（Beacon :15999）。您可以直接输入车名手动发起连接。
+        <section className="block">
+          <div className="sec-label">车辆</div>
+          <div className="launcher">
+            {robots.map((robot) => {
+              const feature =
+                robot.feature === "calibrate" || robot.feature === "watch"
+                  ? robot.feature
+                  : featureFromApp(robot.app);
+              const meta = [
+                robot.app && robot.app !== "normal" ? `app=${robot.app}` : "",
+                robot.ip,
+                robot.data_port ? `UDP ${robot.data_port}` : "",
+              ].filter(Boolean).join(" · ");
+              return (
+                <button key={robot.name} type="button" className="tool" onClick={() => openRobot(robot)}>
+                  <span className="tool-id">{feature}</span>
+                  <span className="tool-body">
+                    <span className="tool-title">{robot.name}</span>
+                    {meta && <span className="tool-desc mono">{meta}</span>}
+                  </span>
+                  <span className="tool-go">新窗口</span>
+                </button>
+              );
+            })}
+            {robots.length === 0 && (
+              <p className="empty launcher-empty">
+                {hubOnline === false ? "无法连接 Hub，请检查 Host 是否运行。" : "暂未发现车辆，可以直接输入车名。"}
               </p>
             )}
-
             <form
               className="launcher-manual"
-              onSubmit={(e) => {
-                e.preventDefault();
+              onSubmit={(event) => {
+                event.preventDefault();
                 openManual();
               }}
             >
               <input
                 value={manual}
-                placeholder="手动指定车名 (sender_name)..."
-                onChange={(e) => setManual(e.target.value)}
+                placeholder="车名 sender_name"
+                onChange={(event) => setManual(event.target.value)}
               />
               <button type="submit" disabled={!manual.trim()}>
                 打开 Watch
               </button>
             </form>
-          </section>
+          </div>
+        </section>
 
-          {/* Running Instances List */}
-          {rows.length > 0 && (
-            <section className="block">
-              <div className="sec-label">已挂载活动实例 (Active Instances)</div>
-              <ul className="inst-list">
-                {rows.map((r) => (
-                  <li key={r.instance}>
-                    <a href={r.path || `/i/${r.instance}`} target="_blank" rel="noreferrer">
-                      <div>
-                        <span className="inst-title">{r.title}</span>
-                        {r.sender && (
-                          <span style={{ color: "var(--cyan)", marginLeft: "8px", fontSize: "12px" }}>
-                            @{r.sender}
-                          </span>
-                        )}
-                      </div>
-                      <span className="inst-meta mono">
-                        {r.data_port ? `UDP :${r.data_port}` : r.instance}
-                      </span>
-                      <span className={`state-tag s-${r.state}`}>{r.state}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
+        {rows.length > 0 && (
+          <section className="block">
+            <div className="sec-label">已打开</div>
+            <ul className="inst-list">
+              {rows.map((row) => (
+                <li key={row.instance}>
+                  <a href={row.path || `/i/${row.instance}`} target="_blank" rel="noreferrer">
+                    <span className="inst-title">
+                      {row.title}
+                      {row.sender ? ` · ${row.sender}` : ""}
+                    </span>
+                    <span className="inst-meta mono">{row.data_port ? `UDP ${row.data_port}` : row.instance}</span>
+                    <span className={`state-tag s-${row.state}`}>{row.state}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
-    </div>
+    </AppShell>
   );
 }
 
@@ -263,16 +190,20 @@ export function InstancePage() {
   const { iid } = useParams();
   const [searchParams] = useSearchParams();
   const [feature, setFeature] = useState(searchParams.get("feature") || "");
+  const [state, setState] = useState("");
   const [err, setErr] = useState("");
 
   useEffect(() => {
     if (!iid) return;
     featureStatus(iid)
-      .then((st) => setFeature(st.feature || ""))
+      .then((status) => {
+        setFeature(status.feature || "");
+        setState(status.state || "");
+      })
       .catch(() => setErr("这个页面对应的线程已经关闭"));
   }, [iid]);
 
-  const mod = FEATURE_MODULES.find((m) => m.id === feature);
+  const module = FEATURE_MODULES.find((item) => item.id === feature);
   const close = () => {
     if (!iid) return;
     const url = `/api/instances/${iid}/stop?forget=1`;
@@ -282,43 +213,18 @@ export function InstancePage() {
   };
 
   return (
-    <div className="app-shell">
-      {/* Topbar with Breadcrumbs */}
-      <header className="topbar">
-        <a href="/" className="brand-group" target="_blank" rel="noreferrer">
-          <LogoIcon />
-          <span className="brand">OmniScope</span>
-        </a>
-        <span className="topbar-sep" />
-        <div className="topbar-breadcrumbs">
-          <span>Studio</span>
-          <span>/</span>
-          {mod && <span className="active">{mod.title}</span>}
-          <span>/</span>
-          <span className="mono" style={{ color: "var(--faint)", fontSize: "11px" }}>
-            {iid}
-          </span>
-        </div>
-        <div className="spacer" />
-        <ChangkongLogo size="sm" showText={false} />
-        <div className="status-pill">
-          <span className="pulse-dot"></span>
-          <span>线程运行中</span>
-        </div>
-        <button type="button" className="ghost" style={{ fontSize: "12px", color: "var(--err)" }} onClick={close}>
-          关闭实例
-        </button>
-      </header>
-
-      {/* Feature Main Content */}
-      <div className="main">
-        {err && <p className="err-text page-pad">{err}</p>}
-        {mod && iid && mod.Component && (
-          <InstanceProvider value={{ id: iid, feature: mod.id, base: `/api/i/${iid}` }}>
-            <mod.Component />
-          </InstanceProvider>
-        )}
-      </div>
-    </div>
+    <AppShell
+      title={module?.title || "实例"}
+      status={err ? "已关闭" : state || "加载中"}
+      statusTone={err ? "error" : state === "running" ? "ok" : "neutral"}
+      onClose={close}
+    >
+      {err && <p className="err-text page-pad">{err}</p>}
+      {module && iid && module.Component && (
+        <InstanceProvider value={{ id: iid, feature: module.id, base: `/api/i/${iid}` }}>
+          <module.Component />
+        </InstanceProvider>
+      )}
+    </AppShell>
   );
 }

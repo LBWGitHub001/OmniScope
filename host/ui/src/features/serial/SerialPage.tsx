@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getJson, postJson } from "../../shared/api";
 import { useInstance } from "../../shared/instance";
 import { useSSE } from "../../shared/useSSE";
+import "./serial.css";
 
 type SerialMsg = {
   id: number;
@@ -162,249 +163,149 @@ export function SerialPage() {
   };
 
   return (
-    <div className="feature-page" style={{ display: "flex", flexDirection: "column", height: "100%", background: "#06070a" }}>
-      {/* Top Controls Toolbar */}
-      <div
-        className="feature-toolbar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          padding: "0 16px",
-          height: "44px",
-          background: "rgba(12, 15, 24, 0.95)",
-          borderBottom: "1px solid var(--border)",
-          backdropFilter: "blur(16px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px", color: "var(--muted)" }}>串口:</span>
-          <select
-            style={{ fontSize: "12px", minWidth: "160px", background: "var(--input)" }}
-            value={selectedPort}
-            onChange={(e) => setSelectedPort(e.target.value)}
-            disabled={isOpen}
-          >
-            {ports.map((p) => (
-              <option key={p.device} value={p.device}>
-                {p.device} {p.description ? `(${p.description})` : ""}
-              </option>
-            ))}
-            {ports.length === 0 && <option value="">无可用串口</option>}
-          </select>
+    <div className="feature-page serial-page">
+      <div className="serial-toolbar">
+        <div className="serial-connection-controls">
+          <label className="serial-field">
+            <span className="serial-field-label">串口</span>
+            <select
+              className="serial-select serial-port-select"
+              value={selectedPort}
+              onChange={(e) => setSelectedPort(e.target.value)}
+              disabled={isOpen}
+            >
+              {ports.map((p) => (
+                <option key={p.device} value={p.device}>
+                  {p.device} {p.description ? `(${p.description})` : ""}
+                </option>
+              ))}
+              {ports.length === 0 && <option value="">无可用串口</option>}
+            </select>
+          </label>
           <button
             type="button"
-            className="ghost"
-            style={{ padding: "0 6px", height: "26px", fontSize: "12px" }}
+            className="serial-button serial-icon-button"
             onClick={fetchPorts}
             disabled={isOpen}
             title="刷新系统串口设备"
+            aria-label="刷新系统串口设备"
           >
             ↻
           </button>
-        </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px", color: "var(--muted)" }}>波特率:</span>
-          <select
-            style={{ fontSize: "12px", width: "105px", background: "var(--input)" }}
-            value={baud}
-            onChange={(e) => setBaud(Number(e.target.value))}
-            disabled={isOpen}
-          >
-            {BAUD_RATES.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-        </div>
+          <label className="serial-field">
+            <span className="serial-field-label">波特率</span>
+            <select
+              className="serial-select serial-baud-select"
+              value={baud}
+              onChange={(e) => setBaud(Number(e.target.value))}
+              disabled={isOpen}
+            >
+              {BAUD_RATES.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <button
-          type="button"
-          className={isOpen ? "ghost" : "primary"}
-          style={{
-            fontSize: "12px",
-            padding: "4px 14px",
-            color: isOpen ? "var(--err)" : undefined,
-            borderColor: isOpen ? "var(--err)" : undefined,
-          }}
-          onClick={toggleConnection}
-          disabled={loading}
-        >
-          {isOpen ? "关闭串口" : "打开串口"}
-        </button>
-
-        <div className="status-pill">
-          <span className={isOpen ? "pulse-dot" : "pulse-dot off"}></span>
-          <span>{isOpen ? `已连接 · ${baud}bps` : "已断开"}</span>
-        </div>
-
-        <div className="spacer" />
-
-        {/* View Mode Toggle */}
-        <div style={{ display: "flex", borderRadius: "4px", overflow: "hidden", border: "1px solid var(--border)" }}>
           <button
             type="button"
-            style={{
-              padding: "2px 10px",
-              fontSize: "11px",
-              background: viewMode === "text" ? "var(--cyan)" : "transparent",
-              color: viewMode === "text" ? "#000" : "var(--muted)",
-              border: "none",
-              borderRadius: 0,
-            }}
-            onClick={() => setViewMode("text")}
+            className={`serial-button ${isOpen ? "is-danger" : "is-primary"}`}
+            onClick={toggleConnection}
+            disabled={loading}
           >
-            文本
+            {isOpen ? "关闭串口" : "打开串口"}
           </button>
-          <button
-            type="button"
-            style={{
-              padding: "2px 10px",
-              fontSize: "11px",
-              background: viewMode === "hex" ? "var(--cyan)" : "transparent",
-              color: viewMode === "hex" ? "#000" : "var(--muted)",
-              border: "none",
-              borderRadius: 0,
-            }}
-            onClick={() => setViewMode("hex")}
-          >
-            HEX
-          </button>
+          <span className={`serial-connection-status ${isOpen ? "is-open" : ""}`}>
+            {isOpen ? `已连接 · ${baud} bps` : "已断开"}
+          </span>
         </div>
 
-        {/* Counters */}
-        <div className="mono" style={{ fontSize: "11px", color: "var(--faint)", display: "flex", gap: "8px" }}>
-          <span>RX: {rxBytes} B</span>
-          <span>TX: {txBytes} B</span>
+        <div className="serial-terminal-controls">
+          <div className="serial-segmented" aria-label="终端显示格式">
+            <button
+              type="button"
+              className={`serial-segment ${viewMode === "text" ? "is-active" : ""}`}
+              onClick={() => setViewMode("text")}
+              aria-pressed={viewMode === "text"}
+            >
+              文本
+            </button>
+            <button
+              type="button"
+              className={`serial-segment ${viewMode === "hex" ? "is-active" : ""}`}
+              onClick={() => setViewMode("hex")}
+              aria-pressed={viewMode === "hex"}
+            >
+              HEX
+            </button>
+          </div>
+
+          <div className="mono serial-counters">
+            <span className="is-rx">RX {rxBytes} B</span>
+            <span className="is-tx">TX {txBytes} B</span>
+          </div>
+
+          <label className="serial-check">
+            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
+            滚屏
+          </label>
+          <label className="serial-check">
+            <input type="checkbox" checked={showTime} onChange={(e) => setShowTime(e.target.checked)} />
+            时间
+          </label>
+          <button type="button" className="serial-button" onClick={clearLogs}>清屏</button>
+          <button type="button" className="serial-button" onClick={exportLogs}>导出</button>
         </div>
-
-        <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--muted)", cursor: "pointer" }}>
-          <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
-          滚屏
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--muted)", cursor: "pointer" }}>
-          <input type="checkbox" checked={showTime} onChange={(e) => setShowTime(e.target.checked)} />
-          时间
-        </label>
-
-        <button type="button" className="ghost" style={{ fontSize: "12px", padding: "2px 8px" }} onClick={clearLogs}>
-          清屏
-        </button>
-        <button type="button" className="ghost" style={{ fontSize: "12px", padding: "2px 8px" }} onClick={exportLogs}>
-          导出
-        </button>
       </div>
 
-      {/* Main Terminal Output Console */}
-      <div
-        ref={logContainerRef}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "12px 16px",
-          fontFamily: "var(--mono)",
-          fontSize: "12px",
-          lineHeight: "20px",
-          background: "radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.02) 0%, #050608 100%)",
-        }}
-      >
+      <div className="serial-terminal" ref={logContainerRef}>
         {logs.length === 0 && (
-          <div style={{ textAlign: "center", padding: "60px 0", color: "var(--faint)" }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "4px", color: "var(--text)" }}>串口监视终端就绪</div>
-            <div style={{ fontSize: "11px", color: "var(--muted)" }}>
-              选择设备与波特率后点击「打开串口」开始接收数据
-            </div>
+          <div className="serial-empty">
+            <div className="serial-empty-title">暂无串口数据</div>
+            <p className="serial-empty-detail">打开串口后，接收与发送记录将显示在这里</p>
           </div>
         )}
 
         {logs.map((item) => (
-          <div
-            key={item.id}
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "8px",
-              padding: "1px 0",
-              color:
-                item.dir === "tx"
-                  ? "var(--amber)"
-                  : item.dir === "error"
-                  ? "var(--err)"
-                  : "var(--text)",
-            }}
-          >
-            {showTime && (
-              <span style={{ color: "var(--faint)", flexShrink: 0, fontSize: "11px" }}>
-                {item.time}
-              </span>
-            )}
-            <span
-              style={{
-                fontSize: "10px",
-                fontWeight: 700,
-                padding: "0 4px",
-                borderRadius: "2px",
-                flexShrink: 0,
-                background:
-                  item.dir === "tx"
-                    ? "rgba(245, 158, 11, 0.15)"
-                    : item.dir === "error"
-                    ? "rgba(239, 68, 68, 0.2)"
-                    : "rgba(0, 240, 255, 0.12)",
-                color:
-                  item.dir === "tx"
-                    ? "var(--amber)"
-                    : item.dir === "error"
-                    ? "var(--err)"
-                    : "var(--cyan)",
-              }}
-            >
-              {item.dir.toUpperCase()}
-            </span>
-            <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          <div className={`serial-log-line is-${item.dir}`} key={item.id}>
+            {showTime && <span className="serial-log-time">{item.time}</span>}
+            <span className="serial-log-direction">{item.dir.toUpperCase()}</span>
+            <span className="serial-log-message">
               {viewMode === "hex" ? item.hex || item.text : item.text || item.hex}
             </span>
           </div>
         ))}
       </div>
 
-      {/* Bottom Send Toolbar */}
       <form
+        className="serial-send-bar"
         onSubmit={(e) => {
           e.preventDefault();
           handleSend();
         }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          padding: "10px 16px",
-          background: "rgba(10, 12, 18, 0.95)",
-          borderTop: "1px solid var(--border)",
-        }}
       >
         <select
-          style={{ width: "85px", fontSize: "12px", background: "var(--input)" }}
+          className="serial-select serial-send-mode"
           value={sendMode}
           onChange={(e) => setSendMode(e.target.value as any)}
+          aria-label="发送格式"
         >
           <option value="text">文本</option>
           <option value="hex">HEX</option>
         </select>
 
         <input
-          style={{ flex: 1, fontSize: "13px", fontFamily: "var(--mono)" }}
-          placeholder={sendMode === "hex" ? "例如: AA 55 01 02 FF (十六进制空格分隔)" : "输入发送内容，按 Enter 快速发送..."}
+          className="serial-send-input"
+          placeholder={sendMode === "hex" ? "例如: AA 55 01 02 FF（十六进制空格分隔）" : "输入发送内容，按 Enter 发送"}
           value={sendInput}
           onChange={(e) => setSendInput(e.target.value)}
           spellCheck={false}
           disabled={!isOpen}
         />
 
-        <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "var(--muted)", cursor: "pointer", whiteSpace: "nowrap" }}>
+        <label className="serial-check serial-newline-check">
           <input
             type="checkbox"
             checked={appendNewline}
@@ -414,8 +315,12 @@ export function SerialPage() {
           +CRLF (\r\n)
         </label>
 
-        <button type="submit" className="primary" style={{ padding: "0 18px", height: "32px", fontSize: "12px" }} disabled={!isOpen || !sendInput.trim()}>
-          发送 →
+        <button
+          type="submit"
+          className="serial-button is-primary serial-send-button"
+          disabled={!isOpen || !sendInput.trim()}
+        >
+          发送
         </button>
       </form>
     </div>

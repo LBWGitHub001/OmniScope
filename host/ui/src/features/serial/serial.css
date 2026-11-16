@@ -1,0 +1,330 @@
+.serial-page {
+  min-width: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+
+.serial-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 6px 16px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.serial-connection-controls,
+.serial-terminal-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.serial-terminal-controls {
+  margin-left: auto;
+}
+
+.serial-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.serial-field-label {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.serial-select,
+.serial-send-input {
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.serial-port-select {
+  width: 220px;
+}
+
+.serial-baud-select {
+  width: 112px;
+}
+
+.serial-page button {
+  box-shadow: none;
+  transition: none;
+}
+
+.serial-page button:hover {
+  box-shadow: none;
+}
+
+.serial-page .serial-button {
+  height: 28px;
+  padding: 0 10px;
+  color: var(--text-strong);
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.serial-page .serial-button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+.serial-page .serial-button.is-primary {
+  color: #f4f5ff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.serial-page .serial-button.is-primary:hover:not(:disabled) {
+  color: #f4f5ff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.serial-page .serial-button.is-danger {
+  color: var(--err);
+  border-color: var(--err);
+}
+
+.serial-page .serial-icon-button {
+  width: 28px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.serial-connection-status {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.serial-connection-status.is-open {
+  color: var(--ok);
+}
+
+.serial-segmented {
+  display: flex;
+  height: 28px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.serial-page .serial-segment {
+  height: 26px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 0;
+}
+
+.serial-page .serial-segment + .serial-segment {
+  border-left: 1px solid var(--hairline);
+}
+
+.serial-page .serial-segment:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--surface);
+}
+
+.serial-page .serial-segment.is-active,
+.serial-page .serial-segment.is-active:hover:not(:disabled) {
+  color: #f4f5ff;
+  background: var(--accent);
+}
+
+.serial-counters {
+  display: flex;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.serial-counters .is-rx {
+  color: var(--accent-ink);
+}
+
+.serial-counters .is-tx {
+  color: var(--warn);
+}
+
+.serial-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.serial-page input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.serial-terminal {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 20px;
+  background: var(--canvas);
+}
+
+.serial-empty {
+  padding: 48px 12px;
+  color: var(--faint);
+  text-align: center;
+}
+
+.serial-empty-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.serial-empty-detail {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.serial-log-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 1px 0;
+  color: var(--text);
+}
+
+.serial-log-line.is-tx {
+  color: var(--warn);
+}
+
+.serial-log-line.is-error {
+  color: var(--err);
+}
+
+.serial-log-time {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.serial-log-direction {
+  flex: 0 0 44px;
+  margin-top: 1px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.serial-log-line.is-tx .serial-log-direction {
+  color: var(--warn);
+}
+
+.serial-log-line.is-error .serial-log-direction {
+  color: var(--err);
+}
+
+.serial-log-line.is-status .serial-log-direction {
+  color: var(--muted);
+}
+
+.serial-log-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: inherit;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.serial-send-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.serial-send-mode {
+  flex: 0 0 86px;
+  width: 86px;
+}
+
+.serial-send-input {
+  flex: 1 1 240px;
+  min-width: 160px;
+  font-family: var(--mono);
+  background: var(--canvas);
+}
+
+.serial-newline-check {
+  flex-shrink: 0;
+}
+
+.serial-page .serial-send-button {
+  min-width: 80px;
+}
+
+.serial-page :is(button, input, select):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 1100px) {
+  .serial-terminal-controls {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .serial-port-select {
+    width: 180px;
+  }
+
+  .serial-send-input {
+    flex-basis: 100%;
+    order: -1;
+  }
+}

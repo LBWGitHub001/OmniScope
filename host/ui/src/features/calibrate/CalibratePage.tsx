@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getJson, postJson } from "../../shared/api";
 import { useInstance } from "../../shared/instance";
 import { useSSE } from "../../shared/useSSE";
+import "./calibrate.css";
 
 type CalibSample = { x: number; y: number; size: number };
 
@@ -93,13 +94,15 @@ export function CalibratePage() {
     if (!ctx) return;
     const w = c.width;
     const h = c.height;
+    const computed = getComputedStyle(c);
+    const themeColor = (name: string) => computed.getPropertyValue(name).trim();
 
-    // Dark grid background
-    ctx.fillStyle = "#090b10";
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = themeColor("--canvas");
     ctx.fillRect(0, 0, w, h);
 
     // Crosshairs
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.strokeStyle = themeColor("--border");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(w / 2, 0);
@@ -109,12 +112,12 @@ export function CalibratePage() {
     ctx.stroke();
 
     // Quad labels
-    ctx.fillStyle = "rgba(0, 240, 255, 0.4)";
-    ctx.font = "9px JetBrains Mono, monospace";
+    ctx.fillStyle = themeColor("--faint");
+    ctx.font = `9px ${themeColor("--mono") || "monospace"}`;
     ctx.fillText("Q2 (左上)", 6, 12);
-    ctx.fillText("Q1 (右上)", w - 46, 12);
+    ctx.fillText("Q1 (右上)", w - 58, 12);
     ctx.fillText("Q3 (左下)", 6, h - 6);
-    ctx.fillText("Q4 (右下)", w - 46, h - 6);
+    ctx.fillText("Q4 (右下)", w - 58, h - 6);
 
     // Sample points
     (status.samples || []).forEach((s) => {
@@ -122,17 +125,20 @@ export function CalibratePage() {
       const py = 6 + Math.max(0, Math.min(1, s.y || 0)) * (h - 12);
       const r = Math.max(3, (s.size || 0.1) * 24);
 
-      ctx.strokeStyle = "rgba(0, 240, 255, 0.6)";
+      ctx.globalAlpha = 0.65;
+      ctx.strokeStyle = themeColor("--accent");
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.fillStyle = "#00f0ff";
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = themeColor("--accent");
       ctx.beginPath();
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.globalAlpha = 1;
   }, [status.samples]);
 
   // Send calibrate command
@@ -192,25 +198,12 @@ export function CalibratePage() {
   const isReady = status.goodenough || sampleCount >= minSamples;
 
   return (
-    <div className="feature-page" style={{ display: "flex", flexDirection: "column", height: "100%", background: "#06070a" }}>
-      {/* Top HUD Toolbar */}
-      <div
-        className="feature-toolbar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "14px",
-          padding: "0 16px",
-          height: "44px",
-          background: "rgba(12, 15, 24, 0.95)",
-          borderBottom: "1px solid var(--border)",
-          backdropFilter: "blur(16px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px", color: "var(--muted)" }}>目标车辆:</span>
+    <div className="feature-page calibrate-page">
+      <div className="calibrate-toolbar">
+        <label className="calibrate-field">
+          <span className="calibrate-field-label">目标车辆</span>
           <select
-            style={{ fontSize: "12px", minWidth: "140px", background: "var(--input)" }}
+            className="calibrate-select calibrate-sender-select"
             value={activeSender}
             onChange={(e) => onSelectSender(e.target.value)}
           >
@@ -221,290 +214,151 @@ export function CalibratePage() {
             ))}
             {senders.length === 0 && <option value="">等待广播车辆...</option>}
           </select>
-        </div>
+        </label>
 
-        <div className="status-pill">
-          <span className={activeSender ? "pulse-dot" : "pulse-dot off"}></span>
-          <span>{activeSender ? `已连接 · ${pktsPerSec} pkt/s` : "等待信标"}</span>
-        </div>
-
-        {/* Board Detection State */}
-        <span
-          className={`state-tag ${status.board ? "s-connected" : "s-idle"}`}
-          style={{ fontSize: "11px", padding: "2px 8px" }}
-        >
-          {status.board ? "棋盘格已锁定 (BOARD OK)" : "未检测到标定板"}
+        <span className={`calibrate-connection ${activeSender ? "is-active" : ""}`}>
+          {activeSender ? `已连接 · ${pktsPerSec} pkt/s` : "等待信标"}
         </span>
-
-        {/* Coverage Status */}
-        <span
-          className={`state-tag ${isReady ? "s-ok" : "s-warn"}`}
-          style={{ fontSize: "11px", padding: "2px 8px" }}
-        >
+        <span className={`calibrate-state ${status.board ? "is-ok" : ""}`}>
+          {status.board ? "标定板已锁定" : "未检测到标定板"}
+        </span>
+        <span className={`calibrate-state ${isReady ? "is-ok" : "is-warn"}`}>
           {status.goodenough
-            ? "覆盖度完备 (READY)"
+            ? "覆盖度完备"
             : sampleCount >= minSamples
             ? "样本充足，可求解"
-            : `需更多位姿 (${sampleCount}/${minSamples})`}
+            : `样本 ${sampleCount}/${minSamples}`}
         </span>
 
-        <div className="spacer" />
+        <div className="calibrate-toolbar-spacer" />
 
-        {/* Exposure Control */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "12px", color: "var(--muted)" }}>曝光:</span>
+        <label className="calibrate-field calibrate-exposure-field">
+          <span className="calibrate-field-label">曝光</span>
           <input
+            className="calibrate-exposure-range"
             type="range"
             min={500}
             max={30000}
             step={500}
             value={exposure}
             onChange={(e) => onExposureChange(Number(e.target.value))}
-            style={{ width: "90px" }}
           />
-          <span className="mono" style={{ fontSize: "11px", color: "var(--cyan)", width: "56px" }}>
-            {exposure}µs
-          </span>
-        </div>
+          <span className="mono calibrate-exposure-value">{exposure} µs</span>
+        </label>
       </div>
 
-      {/* Main Split Workbench */}
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Left Video HUD Stage */}
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "#040507",
-            position: "relative",
-            overflow: "hidden",
-            padding: "16px",
-          }}
-        >
+      <div className="calibrate-workbench">
+        <section className="calibrate-image-stage" aria-label="标定图像">
           {imgUrl ? (
-            <div style={{ position: "relative", maxWidth: "100%", maxHeight: "100%", display: "flex" }}>
-              <img
-                src={imgUrl}
-                alt="Camera Stream"
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: "calc(100vh - 140px)",
-                  objectFit: "contain",
-                  borderRadius: "6px",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
-                  border: "1px solid rgba(0, 240, 255, 0.2)",
-                }}
-              />
-              {/* Tactical Crosshair Corners */}
-              <div className="hud-crosshair">
-                <span className="hud-corner hud-corner-tl" />
-                <span className="hud-corner hud-corner-tr" />
-                <span className="hud-corner hud-corner-bl" />
-                <span className="hud-corner hud-corner-br" />
-              </div>
-            </div>
+            <img className="calibrate-image" src={imgUrl} alt="标定相机图像" />
           ) : (
-            <div style={{ textAlign: "center", color: "var(--faint)" }}>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>等待标定图像流回传</div>
-              <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "6px" }}>
-                请确认车载客户端已启动标定程序 (app: calibrate)
-              </div>
+            <div className="calibrate-empty">
+              <div className="calibrate-empty-title">等待标定图像</div>
+              <div className="calibrate-empty-detail">图像流：calibrate</div>
             </div>
           )}
 
-          {/* Hint Overlay */}
-          {status.hint && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: "20px",
-                background: "rgba(10, 14, 24, 0.85)",
-                backdropFilter: "blur(12px)",
-                border: "1px solid rgba(0, 240, 255, 0.3)",
-                borderRadius: "6px",
-                padding: "6px 16px",
-                fontSize: "12px",
-                color: "var(--cyan)",
-                fontFamily: "var(--mono)",
-              }}
-            >
-              {status.hint}
-            </div>
-          )}
-        </div>
+          {status.hint && <div className="calibrate-hint" role="status">{status.hint}</div>}
+        </section>
 
-        {/* Right Side Control & Coverage Panel */}
-        <div
-          style={{
-            width: "320px",
-            background: "rgba(12, 15, 24, 0.95)",
-            borderLeft: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            padding: "16px",
-            gap: "14px",
-            overflowY: "auto",
-          }}
-        >
-          {/* Action Button Matrix */}
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--faint)", textTransform: "uppercase", marginBottom: "8px" }}>
-              标定动作控制 (Actions)
+        <aside className="calibrate-sidebar">
+          <section className="calibrate-panel">
+            <div className="calibrate-panel-heading">
+              <h2>采样与求解</h2>
+              <span className="mono">{sampleCount}/{minSamples}</span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <div className="calibrate-action-grid">
               <button
                 type="button"
-                className="primary"
-                style={{ padding: "8px 0", fontSize: "12px" }}
+                className="calibrate-button is-primary"
                 onClick={() => sendCmd("add")}
                 disabled={!status.board}
                 title="快捷键: 空格 或 A"
               >
-                + 采样位姿 [Space]
+                + 采样位姿
               </button>
               <button
                 type="button"
-                className="ghost"
-                style={{ padding: "8px 0", fontSize: "12px" }}
+                className="calibrate-button"
                 onClick={() => sendCmd("drop")}
                 disabled={sampleCount === 0}
                 title="快捷键: D"
               >
-                撤销上一帧 [D]
+                撤销上一帧
               </button>
               <button
                 type="button"
-                className="ghost"
-                style={{ padding: "8px 0", fontSize: "12px", color: "var(--err)" }}
+                className="calibrate-button is-danger"
                 onClick={() => sendCmd("reset")}
                 disabled={sampleCount === 0}
                 title="快捷键: R"
               >
-                清空样本 [R]
+                清空样本
               </button>
               <button
                 type="button"
-                className="primary"
-                style={{
-                  padding: "8px 0",
-                  fontSize: "12px",
-                  background: isReady ? "linear-gradient(135deg, #10b981, #059669)" : undefined,
-                  borderColor: isReady ? "#10b981" : undefined,
-                }}
+                className={`calibrate-button ${isReady ? "is-ready" : "is-primary"}`}
                 onClick={() => sendCmd("calibrate")}
                 disabled={sampleCount < minSamples}
                 title="快捷键: C"
               >
-                一键标定求解 [C]
+                标定求解
               </button>
             </div>
-          </div>
+          </section>
 
-          {/* 2D Coverage Distribution Map */}
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--faint)", textTransform: "uppercase" }}>
-                平面空间覆盖分布
-              </span>
-              <span className="mono" style={{ fontSize: "11px", color: "var(--cyan)" }}>
-                {sampleCount} 样本
-              </span>
+          <section className="calibrate-panel">
+            <div className="calibrate-panel-heading">
+              <h2>平面覆盖分布</h2>
+              <span className="mono calibrate-sample-count">{sampleCount} 样本</span>
             </div>
             <canvas
+              className="calibrate-coverage"
               ref={canvasRef}
               width={286}
               height={190}
-              style={{
-                width: "100%",
-                height: "190px",
-                borderRadius: "6px",
-                border: "1px solid var(--border)",
-                display: "block",
-              }}
+              role="img"
+              aria-label="标定样本平面覆盖分布"
             />
-          </div>
+            <div className="calibrate-metrics">
+              <MetricBar label="X 轴横向覆盖" value={status.x || 0} />
+              <MetricBar label="Y 轴纵向覆盖" value={status.y || 0} />
+              <MetricBar label="距离深度跨度" value={status.size || 0} />
+              <MetricBar label="倾角斜度偏转" value={status.skew || 0} />
+            </div>
+          </section>
 
-          {/* Spatial Metric Bars */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <MetricBar label="X 轴横向覆盖" value={status.x || 0} />
-            <MetricBar label="Y 轴纵向覆盖" value={status.y || 0} />
-            <MetricBar label="距离深度跨度" value={status.size || 0} />
-            <MetricBar label="倾角斜度偏转" value={status.skew || 0} />
-          </div>
-
-          {/* Calibration Result Card */}
           {(status.has_cam || status.calibrated_at || status.calib_done) && (
-            <div
-              style={{
-                background: "rgba(16, 185, 129, 0.08)",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
-                borderRadius: "6px",
-                padding: "12px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)" }}>
-                  标定解算成功 [OK]
-                </span>
-                <span className="mono" style={{ fontSize: "11px", color: "var(--green)" }}>
-                  RMS: {Number(status.reproj || 0).toFixed(4)} px
+            <section className="calibrate-panel calibrate-result" aria-live="polite">
+              <div className="calibrate-panel-heading">
+                <h2>标定结果</h2>
+                <span className="mono calibrate-result-rms">
+                  RMS {Number(status.reproj || 0).toFixed(4)} px
                 </span>
               </div>
 
               {status.result_path && (
-                <div className="mono" style={{ fontSize: "10px", color: "var(--muted)", wordBreak: "break-all" }}>
-                  保存: {status.result_path}
-                </div>
+                <div className="mono calibrate-result-path">保存：{status.result_path}</div>
               )}
 
               {status.camera_matrix && (
-                <div>
-                  <div style={{ fontSize: "10px", color: "var(--faint)", marginBottom: "2px" }}>相机内参矩阵 K:</div>
-                  <pre
-                    className="mono"
-                    style={{
-                      margin: 0,
-                      padding: "6px",
-                      background: "rgba(0,0,0,0.4)",
-                      borderRadius: "4px",
-                      fontSize: "10px",
-                      lineHeight: "14px",
-                      color: "var(--text)",
-                    }}
-                  >
-                    {formatMatrix(status.camera_matrix, 3)}
-                  </pre>
+                <div className="calibrate-matrix">
+                  <div className="calibrate-matrix-label">相机内参矩阵 K</div>
+                  <pre className="calibrate-matrix-value">{formatMatrix(status.camera_matrix, 3)}</pre>
                 </div>
               )}
 
               {status.distort_coeffs && (
-                <div>
-                  <div style={{ fontSize: "10px", color: "var(--faint)", marginBottom: "2px" }}>畸变向量 D:</div>
-                  <pre
-                    className="mono"
-                    style={{
-                      margin: 0,
-                      padding: "6px",
-                      background: "rgba(0,0,0,0.4)",
-                      borderRadius: "4px",
-                      fontSize: "10px",
-                      lineHeight: "14px",
-                      color: "var(--text)",
-                    }}
-                  >
+                <div className="calibrate-matrix">
+                  <div className="calibrate-matrix-label">畸变向量 D</div>
+                  <pre className="calibrate-matrix-value">
                     {status.distort_coeffs.map((v) => Number(v).toFixed(5)).join(", ")}
                   </pre>
                 </div>
               )}
-            </div>
+            </section>
           )}
-        </div>
+        </aside>
       </div>
     </div>
   );
@@ -514,21 +368,17 @@ function MetricBar({ label, value }: { label: string; value: number }) {
   const pct = Math.max(0, Math.min(1, value || 0));
   const isFull = pct >= 1;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--muted)" }}>
+    <div className="calibrate-metric">
+      <div className="calibrate-metric-heading">
         <span>{label}</span>
-        <span className="mono" style={{ color: isFull ? "var(--green)" : "var(--text-strong)" }}>
+        <span className={`mono calibrate-metric-value ${isFull ? "is-full" : ""}`}>
           {Math.round(pct * 100)}%
         </span>
       </div>
-      <div style={{ height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+      <div className="calibrate-metric-track">
         <div
-          style={{
-            height: "100%",
-            width: `${Math.round(pct * 100)}%`,
-            background: isFull ? "var(--green)" : "var(--cyan)",
-            transition: "width 0.2s ease",
-          }}
+          className={`calibrate-metric-fill ${isFull ? "is-full" : ""}`}
+          style={{ width: `${Math.round(pct * 100)}%` }}
         />
       </div>
     </div>
