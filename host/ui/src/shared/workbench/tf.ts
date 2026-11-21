@@ -79,7 +79,8 @@ export function knownFrames(tfByChild: Record<string, TransformStamped>, extra: 
 export function tfTreeRows(tfByChild: Record<string, TransformStamped>): { parent: string; child: string }[] {
   return Object.values(tfByChild)
     .filter((tf) => tf.child)
-    .map((tf) => ({ parent: tf.parent || "world", child: tf.child }))
+    .map((tf) => ({ parent: tf.parent, child: tf.child }))
+    .filter((row) => row.parent && row.child)
     .sort((a, b) => a.parent.localeCompare(b.parent) || a.child.localeCompare(b.child));
 }
 
@@ -132,9 +133,6 @@ export function lookupTransform(
 }
 
 export function defaultFixedFrame(tfByChild: Record<string, TransformStamped>): string {
-  if (tfByChild.world || Object.values(tfByChild).some((tf) => tf.parent === "world" || tf.child === "world")) {
-    return "world";
-  }
   const children = Object.keys(tfByChild);
   if (children.length) {
     const parents = new Set(Object.values(tfByChild).map((tf) => tf.parent || ""));
@@ -142,5 +140,5 @@ export function defaultFixedFrame(tfByChild: Record<string, TransformStamped>): 
     if (roots[0]) return roots[0];
     return children[0];
   }
-  return "world";
+  return "";
 }

@@ -13,6 +13,7 @@ import { compileExpr } from "./expr";
 import type { Scene3DStats } from "./Scene3DView";
 import type { XyCurve } from "./XyPane";
 import type { Marker, TransformStamped } from "./markers";
+import { defaultFixedFrame, knownFrames } from "./tf";
 import {
   COLORS,
   fillEmptyImgSels,
@@ -84,7 +85,7 @@ export function useWorkbenchData({
   const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>(null);
   const [scene3DStats, setScene3DStats] = useState<Scene3DStats>({ count: 0, namespaces: {}, types: {}, objects: [], frames: [] });
   const [tfByChild, setTfByChild] = useState<Record<string, TransformStamped>>({});
-  const [fixedFrame, setFixedFrame] = useState("world");
+  const [fixedFrame, setFixedFrame] = useState("");
   const [showTfAxes, setShowTfAxes] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -568,7 +569,7 @@ export function useWorkbenchData({
       setLogs([]);
       tfBuf.current = [];
       setTfByChild({});
-      setFixedFrame("world");
+      setFixedFrame("");
       setImages((previous) => {
         Object.values(previous).forEach((url) => {
           if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -590,6 +591,14 @@ export function useWorkbenchData({
   useEffect(() => {
     busOut(bus);
   }, [bus, busOut]);
+
+  useEffect(() => {
+    const frames = knownFrames(tfByChild);
+    if (!frames.length) return;
+    if (!fixedFrame || !frames.includes(fixedFrame)) {
+      setFixedFrame(defaultFixedFrame(tfByChild));
+    }
+  }, [tfByChild, fixedFrame]);
 
   return {
     mode, setMode,

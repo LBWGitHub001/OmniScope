@@ -579,7 +579,7 @@ function disposeHierarchy(obj: THREE.Object3D) {
 }
 
 function markerFrameId(m: Marker): string {
-  return m.frame_id || m.header?.frame_id || "world";
+  return m.frame_id || m.header?.frame_id || "";
 }
 
 function applyFramePose(root: THREE.Group, marker: Marker, tfByChild: Record<string, TransformStamped>, fixedFrame: string): boolean {
@@ -591,11 +591,19 @@ function applyFramePose(root: THREE.Group, marker: Marker, tfByChild: Record<str
   return true;
 }
 
-function syncRecordVisible(rec: MarkerRecord, visibleNs: Record<string, boolean>, visibleObjects: Record<string, boolean>, key: string) {
+function syncRecordVisible(
+  rec: MarkerRecord,
+  visibleNs: Record<string, boolean>,
+  visibleObjects: Record<string, boolean>,
+  key: string,
+  fixedFrame: string,
+) {
   const ns = rec.marker.ns || "default";
   const isNsVis = visibleNs[ns] !== false;
   const isObjVis = visibleObjects[key] !== false;
-  rec.frameRoot.visible = rec.tfOk && isNsVis && isObjVis;
+  const frame = markerFrameId(rec.marker);
+  const inView = !frame || !fixedFrame || frame === fixedFrame;
+  rec.frameRoot.visible = rec.tfOk && isNsVis && isObjVis && inView;
 }
 
 // ============================================================================
@@ -615,7 +623,7 @@ export function Scene3DView({
   cameraPreset = null,
   showTfAxes = true,
   tfByChild = {},
-  fixedFrame = "world",
+  fixedFrame = "",
   onFixedFrameChange,
 }: Scene3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -680,9 +688,9 @@ export function Scene3DView({
       setActiveCount(count);
       if (onActiveCountChange) onActiveCountChange(count);
       const markerFrames = [...new Set(
-        [...markerMapRef.current.values()].map((rec) => rec.marker.frame_id || rec.marker.header?.frame_id || "world"),
+        [...markerMapRef.current.values()].map((rec) => markerFrameId(rec.marker)).filter(Boolean),
       )];
-      const frames = knownFrames(tfByChildRef.current, [fixedFrameRef.current, ...markerFrames]);
+      const frames = knownFrames(tfByChildRef.current, [fixedFrameRef.current, ...markerFrames].filter(Boolean));
       if (onStatsChange) onStatsChange({ count, namespaces, types, objects, frames });
     },
     [onActiveCountChange, onStatsChange]
@@ -868,7 +876,7 @@ export function Scene3DView({
     visibleNsRef.current = visibleNs;
     visibleObjectsRef.current = visibleObjects;
     markerMapRef.current.forEach((rec, key) => {
-      syncRecordVisible(rec, visibleNs, visibleObjects, key);
+      syncRecordVisible(rec, visibleNs, visibleObjects, key, fixedFrameRef.current);
     });
   }, [visibleNs, visibleObjects]);
 
@@ -878,7 +886,7 @@ export function Scene3DView({
     const scene = sceneRef.current;
     markerMapRef.current.forEach((rec, key) => {
       rec.tfOk = applyFramePose(rec.frameRoot, rec.marker, tfByChild, fixedFrame);
-      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrame);
     });
 
     tfAxesRef.current.forEach((g) => {
@@ -940,7 +948,7 @@ export function Scene3DView({
       if (existing && updateMarkerObject(existing, m)) {
         existing.marker = m;
         existing.tfOk = applyFramePose(existing.frameRoot, m, tfByChildRef.current, fixedFrameRef.current);
-        syncRecordVisible(existing, visibleNsRef.current, visibleObjectsRef.current, key);
+        syncRecordVisible(existing, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrameRef.current);
         const lifetimeMs = (m.lifetime || 0) * 1000;
         existing.expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
         existing.lastText = m.text;
@@ -971,7 +979,7 @@ export function Scene3DView({
         lastText: m.text,
         tfOk,
       };
-      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrameRef.current);
       markerMapRef.current.set(key, rec);
 
       statsDirtyRef.current = true;
@@ -1014,7 +1022,7 @@ export function Scene3DView({
           title="当前查看坐标系"
           onChange={(event) => onFixedFrameChange?.(event.target.value)}
         >
-          {knownFrames(tfByChild, [fixedFrame, "world"]).map((frame) => (
+          {knownFrames(tfByChild, [fixedFrame].filter(Boolean)).map((frame) => (
             <option key={frame} value={frame}>{frame}</option>
           ))}
         </select>

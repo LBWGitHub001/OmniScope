@@ -309,7 +309,7 @@ export function WorkbenchSidebar({ open, onToggle, activeKind, data }: Workbench
                 </label>
                 <div className="side-h" style={{ marginTop: 8 }}>当前坐标系</div>
                 <select value={data.fixedFrame} onChange={(event) => data.setFixedFrame(event.target.value)}>
-                  {knownFrames(data.tfByChild, [data.fixedFrame, "world", ...(data.scene3DStats.frames || [])]).map((frame) => (
+                  {knownFrames(data.tfByChild, [data.fixedFrame, ...(data.scene3DStats.frames || [])].filter(Boolean)).map((frame) => (
                     <option key={frame} value={frame}>{frame}</option>
                   ))}
                 </select>
