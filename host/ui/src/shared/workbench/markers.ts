@@ -49,6 +49,13 @@ export interface Pose {
   orientation?: Quaternion;
 }
 
+export interface TransformStamped {
+  parent?: string;
+  child: string;
+  translation?: Vector3;
+  rotation?: Quaternion;
+}
+
 export interface Marker {
   header?: { frame_id?: string; stamp?: number };
   frame_id?: string;

@@ -277,6 +277,19 @@ ROS 2 `visualization_msgs/msg/Marker` 对齐结构。
 
 ---
 
+#### `omniscope::plot_tf / plot_tfs`
+
+```cpp
+void omniscope::plot_tf(const TransformStamped & tf);
+void omniscope::plot_tfs(const std::vector<TransformStamped> & tfs);
+```
+
+上报 parent → child 变换。Host 用 TF 树把 Marker 的 `frame_id` 变到当前查看坐标系。
+
+`TransformStamped`：`parent`（默认 `"world"`）、`child`、`translation`、`rotation`（`x,y,z,w`）。
+
+---
+
 #### `enum class MarkerType`
 
 | 值 | 枚举 | 用途 |

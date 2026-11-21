@@ -111,6 +111,18 @@ inline void plot_markers(const std::vector<Marker> & markers)
   RemoteLogger::instance().plot_markers(markers);
 }
 
+/// 上报一条 TF（parent → child）
+inline void plot_tf(const TransformStamped & tf)
+{
+  RemoteLogger::instance().plot_tf(tf);
+}
+
+/// 批量上报 TF
+inline void plot_tfs(const std::vector<TransformStamped> & tfs)
+{
+  RemoteLogger::instance().plot_tfs(tfs);
+}
+
 // ============================================================================
 // Vision & Image Stream (视觉图像遥测流)
 // ============================================================================

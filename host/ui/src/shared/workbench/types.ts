@@ -1,5 +1,5 @@
 import type { ExprFn } from "./expr";
-import type { Marker } from "./markers";
+import type { Marker, TransformStamped } from "./markers";
 import type { XyCurve } from "./XyPane";
 
 export type DataBus = {
@@ -10,6 +10,8 @@ export type DataBus = {
   setCurve: (channel: string, curve: XyCurve) => void;
   addMarker?: (marker: Marker) => void;
   addMarkers?: (markers: Marker[]) => void;
+  addTf?: (tf: TransformStamped) => void;
+  addTfs?: (tfs: TransformStamped[]) => void;
   loadReplay: (
     series: Record<string, [number, number][]>,
     logs: { t: number; ts?: number; level: string; msg: string }[],

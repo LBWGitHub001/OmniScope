@@ -32,6 +32,14 @@ function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: {
     bus.addMarkers?.(msg.markers as any[]);
     return;
   }
+  if (type === "tf" && msg.tf && typeof msg.tf === "object") {
+    bus.addTf?.(msg.tf as any);
+    return;
+  }
+  if (type === "tfs" && Array.isArray(msg.tfs)) {
+    bus.addTfs?.(msg.tfs as any[]);
+    return;
+  }
   if (type === "plot" || (!type && msg.data && typeof msg.data === "object")) {
     const data = (msg.data || msg) as Record<string, unknown>;
     if (data.marker && typeof data.marker === "object") {
@@ -40,11 +48,17 @@ function handleEvent(bus: DataBus | null, msg: Record<string, unknown>, t0Ref: {
     if (data.markers && Array.isArray(data.markers)) {
       bus.addMarkers?.(data.markers as any[]);
     }
+    if (data.tf && typeof data.tf === "object") {
+      bus.addTf?.(data.tf as any);
+    }
+    if (data.tfs && Array.isArray(data.tfs)) {
+      bus.addTfs?.(data.tfs as any[]);
+    }
     const ts = Number(msg.ts || data.ts || 0);
     if (!t0Ref.current && ts) t0Ref.current = ts;
     const t = t0Ref.current ? (ts - t0Ref.current) / 1e9 : 0;
     for (const [k, v] of Object.entries(data)) {
-      if (k === "ts" || k === "_from" || k === "type" || k === "hb" || k === "marker" || k === "markers") continue;
+      if (k === "ts" || k === "_from" || k === "type" || k === "hb" || k === "marker" || k === "markers" || k === "tf" || k === "tfs") continue;
       if (typeof v === "number") {
         bus.addPoint(k, t, v);
         continue;

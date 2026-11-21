@@ -71,6 +71,17 @@ struct ColorRGBA
   NLOHMANN_DEFINE_TYPE_INTRUSIVE(ColorRGBA, r, g, b, a)
 };
 
+/// 父子坐标系变换（ROS tf 风格）。parent → child。
+struct TransformStamped
+{
+  std::string parent = "world";
+  std::string child;
+  Vector3 translation;
+  Quaternion rotation;
+
+  NLOHMANN_DEFINE_TYPE_INTRUSIVE(TransformStamped, parent, child, translation, rotation)
+};
+
 struct Marker
 {
   std::string frame_id = "base_link";

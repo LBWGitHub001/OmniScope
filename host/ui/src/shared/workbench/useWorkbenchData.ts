@@ -12,7 +12,7 @@ import Hammer from "hammerjs";
 import { compileExpr } from "./expr";
 import type { Scene3DStats } from "./Scene3DView";
 import type { XyCurve } from "./XyPane";
-import type { Marker } from "./markers";
+import type { Marker, TransformStamped } from "./markers";
 import {
   COLORS,
   fillEmptyImgSels,
@@ -83,6 +83,7 @@ export function useWorkbenchData({
   const [visibleObjects, setVisibleObjects] = useState<Record<string, boolean>>({});
   const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>(null);
   const [scene3DStats, setScene3DStats] = useState<Scene3DStats>({ count: 0, namespaces: {}, types: {}, objects: [] });
+  const [tfByChild, setTfByChild] = useState<Record<string, TransformStamped>>({});
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -97,6 +98,7 @@ export function useWorkbenchData({
   const imgBuf = useRef<Record<string, string>>({});
   const streamBuf = useRef<string[]>([]);
   const markerBuf = useRef<Marker[]>([]);
+  const tfBuf = useRef<TransformStamped[]>([]);
   const xyRef = useRef<Record<string, XyCurve>>({});
   const xyDirty = useRef(false);
   const chartDirty = useRef(false);
@@ -213,6 +215,17 @@ export function useWorkbenchData({
       const batch = markerBuf.current;
       markerBuf.current = [];
       setMarkers(batch);
+    }
+    if (tfBuf.current.length) {
+      const batch = tfBuf.current;
+      tfBuf.current = [];
+      setTfByChild((previous) => {
+        const next = { ...previous };
+        for (const tf of batch) {
+          if (tf.child) next[tf.child] = tf;
+        }
+        return next;
+      });
     }
     if (xyDirty.current) {
       xyDirty.current = false;
@@ -497,6 +510,14 @@ export function useWorkbenchData({
       markerBuf.current.push(...nextMarkers);
       schedule();
     },
+    addTf(tf) {
+      tfBuf.current.push(tf);
+      schedule();
+    },
+    addTfs(tfs) {
+      tfBuf.current.push(...tfs);
+      schedule();
+    },
     loadReplay(series, replayLogs, duration, replayMarkers) {
       const nextSeries: Record<string, { x: number; y: number }[]> = {};
       const nextFields = { ...fieldsRef.current };
@@ -543,6 +564,8 @@ export function useWorkbenchData({
         chartRef.current.update("none");
       }
       setLogs([]);
+      tfBuf.current = [];
+      setTfByChild({});
       setImages((previous) => {
         Object.values(previous).forEach((url) => {
           if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -601,6 +624,7 @@ export function useWorkbenchData({
     visibleObjects, setVisibleObjects,
     cameraPreset, setCameraPreset,
     scene3DStats, setScene3DStats,
+    tfByChild, setTfByChild,
     canvasRef,
     hostRef,
     chartRef,

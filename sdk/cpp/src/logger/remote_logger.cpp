@@ -89,6 +89,20 @@ void RemoteLogger::plot_markers(const std::vector<Marker> & markers)
   plot(j);
 }
 
+void RemoteLogger::plot_tf(const TransformStamped & tf)
+{
+  nlohmann::json j;
+  j["tf"] = tf;
+  plot(j);
+}
+
+void RemoteLogger::plot_tfs(const std::vector<TransformStamped> & tfs)
+{
+  nlohmann::json j;
+  j["tfs"] = tfs;
+  plot(j);
+}
+
 bool RemoteLogger::poll_calib_cmd(std::string & cmd) { return impl_->poll_calib_cmd(cmd); }
 
 bool RemoteLogger::poll_json(nlohmann::json & data) { return impl_->poll_json(data); }

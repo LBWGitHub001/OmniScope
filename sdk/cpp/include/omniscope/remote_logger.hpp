@@ -60,6 +60,10 @@ public:
   void plot_marker(const Marker & marker);
   /// 批量发送 3D 可视化标记
   void plot_markers(const std::vector<Marker> & markers);
+  /// 发送一条 TF（parent → child）
+  void plot_tf(const TransformStamped & tf);
+  /// 批量发送 TF
+  void plot_tfs(const std::vector<TransformStamped> & tfs);
   /// host 网页下发的标定指令
   bool poll_calib_cmd(std::string & cmd);
   /// host 下发的通用 JSON 控制命令
