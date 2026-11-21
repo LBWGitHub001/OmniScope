@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import type { useWorkbenchData } from "./useWorkbenchData";
+import type { MarkerObjectMeta } from "./Scene3DView";
 import type { PanelKind, ViewMode } from "./types";
 
 type WorkbenchData = ReturnType<typeof useWorkbenchData>;
@@ -19,13 +20,159 @@ const TITLE: Record<PanelKind, string> = {
   xy: "XY 设置",
 };
 
-export function WorkbenchSidebar({ open, onToggle, activeKind, data }: WorkbenchSidebarProps) {
-  const displayedObjects = useMemo(() => {
-    const objects = data.scene3DStats.objects || [];
-    if (data.selectedNsFilter === "all") return objects;
-    return objects.filter((object) => object.ns === data.selectedNsFilter);
-  }, [data.scene3DStats.objects, data.selectedNsFilter]);
+type MarkerGroup = { ns: string; objects: MarkerObjectMeta[] };
 
+function groupMarkers(objects: MarkerObjectMeta[]): MarkerGroup[] {
+  const map = new Map<string, MarkerObjectMeta[]>();
+  for (const object of objects) {
+    const list = map.get(object.ns) || [];
+    list.push(object);
+    map.set(object.ns, list);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([ns, items]) => ({ ns, objects: items }));
+}
+
+function MarkerGroupList({ data }: { data: WorkbenchData }) {
+  const [openNs, setOpenNs] = useState<string | null>(null);
+  const groups = useMemo(
+    () => groupMarkers(data.scene3DStats.objects || []),
+    [data.scene3DStats.objects],
+  );
+
+  const setGroupVisible = (ns: string, objects: MarkerObjectMeta[], visible: boolean) => {
+    data.setVisibleNs((previous) => ({ ...previous, [ns]: visible }));
+    data.setVisibleObjects((previous) => {
+      const next = { ...previous };
+      for (const object of objects) next[object.key] = visible;
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <div className="button-row">
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => {
+            const nsNext: Record<string, boolean> = {};
+            const objNext = { ...data.visibleObjects };
+            for (const group of groups) {
+              nsNext[group.ns] = true;
+              for (const object of group.objects) objNext[object.key] = true;
+            }
+            data.setVisibleNs((previous) => ({ ...previous, ...nsNext }));
+            data.setVisibleObjects(objNext);
+          }}
+        >全显</button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => {
+            const nsNext: Record<string, boolean> = {};
+            const objNext = { ...data.visibleObjects };
+            for (const group of groups) {
+              nsNext[group.ns] = false;
+              for (const object of group.objects) objNext[object.key] = false;
+            }
+            data.setVisibleNs((previous) => ({ ...previous, ...nsNext }));
+            data.setVisibleObjects(objNext);
+          }}
+        >全隐</button>
+      </div>
+      {groups.length === 0 ? (
+        <span className="muted">等待 3D 数据…</span>
+      ) : (
+        <div className="marker-groups">
+          {groups.map((group) => {
+            const groupOn = data.visibleNs[group.ns] !== false;
+            const childStates = group.objects.map((object) => data.visibleObjects[object.key] !== false);
+            const allOn = groupOn && childStates.every(Boolean);
+            const noneOn = !groupOn || childStates.every((on) => !on);
+            const partial = !allOn && !noneOn;
+            const open = openNs === group.ns;
+            return (
+              <div key={group.ns} className="marker-group">
+                <div className="marker-group-row">
+                  <GroupCheck
+                    checked={allOn}
+                    indeterminate={partial}
+                    onChange={(visible) => setGroupVisible(group.ns, group.objects, visible)}
+                  />
+                  <span className="mono ellipsis marker-group-name" title={group.ns}>{group.ns}</span>
+                  <span className="muted marker-group-count">{group.objects.length}</span>
+                  <button
+                    type="button"
+                    className={open ? "ghost marker-group-caret open" : "ghost marker-group-caret"}
+                    title="组内图元"
+                    onClick={() => setOpenNs(open ? null : group.ns)}
+                  >▾</button>
+                </div>
+                {open && (
+                  <div className="marker-group-menu">
+                    {group.objects.map((object) => {
+                      const checked = groupOn && data.visibleObjects[object.key] !== false;
+                      return (
+                        <label key={object.key} className={checked ? "object-row" : "object-row is-hidden"}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const nextOn = !checked;
+                              data.setVisibleObjects((previous) => ({
+                                ...previous,
+                                [object.key]: nextOn,
+                              }));
+                              if (nextOn && !groupOn) {
+                                data.setVisibleNs((previous) => ({ ...previous, [group.ns]: true }));
+                              }
+                            }}
+                          />
+                          <span className="swatch" style={{ background: object.colorHex }} />
+                          <span className="mono object-id">#{object.id}</span>
+                          <span className="mono ellipsis" title={object.text ? `${object.typeName}: ${object.text}` : object.typeName}>
+                            {object.typeName}{object.text ? ` (${object.text})` : ""}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+function GroupCheck({
+  checked,
+  indeterminate,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  onChange: (visible: boolean) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={() => onChange(!(checked || indeterminate))}
+    />
+  );
+}
+
+export function WorkbenchSidebar({ open, onToggle, activeKind, data }: WorkbenchSidebarProps) {
   return (
     <aside className={open ? "dbg-side" : "dbg-side collapsed"}>
       <button type="button" className="side-toggle" onClick={onToggle} title={open ? "收起设置" : "展开设置"}>
@@ -158,61 +305,7 @@ export function WorkbenchSidebar({ open, onToggle, activeKind, data }: Workbench
               </div>
               <div className="side-sec">
                 <div className="side-h">图元（{data.scene3DStats.count}）</div>
-                <select value={data.selectedNsFilter} onChange={(event) => data.setSelectedNsFilter(event.target.value)}>
-                  <option value="all">所有命名空间</option>
-                  {Object.entries(data.scene3DStats.namespaces).map(([namespace, count]) => (
-                    <option key={namespace} value={namespace}>{namespace}（{count}）</option>
-                  ))}
-                </select>
-                <div className="button-row">
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      const next = { ...data.visibleObjects };
-                      displayedObjects.forEach((object) => { next[object.key] = true; });
-                      data.setVisibleObjects(next);
-                      if (data.selectedNsFilter !== "all") {
-                        data.setVisibleNs((previous) => ({ ...previous, [data.selectedNsFilter]: true }));
-                      }
-                    }}
-                  >全显</button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      const next = { ...data.visibleObjects };
-                      displayedObjects.forEach((object) => { next[object.key] = false; });
-                      data.setVisibleObjects(next);
-                    }}
-                  >全隐</button>
-                </div>
-                {displayedObjects.length === 0 ? (
-                  <span className="muted">等待 3D 数据…</span>
-                ) : (
-                  <div className="object-list">
-                    {displayedObjects.map((object) => {
-                      const checked = data.visibleNs[object.ns] !== false && data.visibleObjects[object.key] !== false;
-                      return (
-                        <label key={object.key} className={checked ? "object-row" : "object-row is-hidden"}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => data.setVisibleObjects((previous) => ({
-                              ...previous,
-                              [object.key]: !checked,
-                            }))}
-                          />
-                          <span className="swatch" style={{ background: object.colorHex }} />
-                          <span className="mono object-id">#{object.id}</span>
-                          <span className="mono ellipsis" title={object.text ? `${object.typeName}: ${object.text}` : object.typeName}>
-                            {object.typeName}{object.text ? ` (${object.text})` : ""}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
+                <MarkerGroupList data={data} />
               </div>
               <div className="side-sec">
                 <div className="side-h">相机视角</div>
