@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import type { useWorkbenchData } from "./useWorkbenchData";
 import type { MarkerObjectMeta } from "./Scene3DView";
 import type { PanelKind, ViewMode } from "./types";
+import { knownFrames, tfTreeRows } from "./tf";
 
 type WorkbenchData = ReturnType<typeof useWorkbenchData>;
 
@@ -302,6 +303,25 @@ export function WorkbenchSidebar({ open, onToggle, activeKind, data }: Workbench
                   <option value={20}>20 米网格</option>
                   <option value={50}>50 米网格</option>
                 </select>
+                <label>
+                  <input type="checkbox" checked={data.showTfAxes} onChange={(event) => data.setShowTfAxes(event.target.checked)} />
+                  显示 TF 坐标轴
+                </label>
+                <div className="side-h" style={{ marginTop: 8 }}>当前坐标系</div>
+                <select value={data.fixedFrame} onChange={(event) => data.setFixedFrame(event.target.value)}>
+                  {knownFrames(data.tfByChild, [data.fixedFrame, "world", ...(data.scene3DStats.frames || [])]).map((frame) => (
+                    <option key={frame} value={frame}>{frame}</option>
+                  ))}
+                </select>
+                {tfTreeRows(data.tfByChild).length > 0 && (
+                  <div className="tf-tree">
+                    {tfTreeRows(data.tfByChild).map((row) => (
+                      <div key={`${row.parent}:${row.child}`} className="tf-tree-row mono">
+                        {row.parent} → {row.child}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="side-sec">
                 <div className="side-h">图元（{data.scene3DStats.count}）</div>

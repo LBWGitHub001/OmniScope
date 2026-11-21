@@ -291,6 +291,8 @@ kbd { padding: 1px 4px; border: 1px solid var(--border); border-radius: 3px; bac
 .marker-group-caret { height: 22px; width: 22px; padding: 0; flex-shrink: 0; color: var(--faint); }
 .marker-group-caret.open { color: var(--text-strong); transform: rotate(180deg); }
 .marker-group-menu { margin: 0 0 6px 22px; padding: 4px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--surface-2); display: flex; flex-direction: column; }
+.tf-tree { margin-top: 6px; max-height: 120px; overflow: auto; padding: 4px 6px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--canvas); }
+.tf-tree-row { font-size: 11px; color: var(--muted); line-height: 1.6; }
 .camera-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .camera-grid button { height: 26px; padding: 0 6px; }
 .workbench-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -402,7 +404,17 @@ kbd { padding: 1px 4px; border: 1px solid var(--border); border-radius: 3px; bac
   font-size: 11px;
   pointer-events: none;
 }
-.scene3d-badge { top: 10px; left: 10px; }
+.scene3d-badge { top: 10px; left: 10px; pointer-events: auto; }
+.scene3d-frame-select {
+  height: 20px;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  background: var(--canvas);
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+}
 .scene3d-axes { right: 12px; bottom: 10px; }
 .scene3d-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .scene3d-dot.on { background: var(--ok); }

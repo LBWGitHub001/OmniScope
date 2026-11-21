@@ -196,9 +196,13 @@ export function DebugWorkbench({
                       showGrid={data.show3DGrid}
                       gridSize={data.gridSize3D}
                       showAxes={data.show3DAxes}
+                      showTfAxes={data.showTfAxes}
                       visibleNs={data.visibleNs}
                       visibleObjects={data.visibleObjects}
                       cameraPreset={data.cameraPreset}
+                      tfByChild={data.tfByChild}
+                      fixedFrame={data.fixedFrame}
+                      onFixedFrameChange={data.setFixedFrame}
                       onStatsChange={data.setScene3DStats}
                     />
                   )}

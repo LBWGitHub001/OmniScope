@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { Marker, MarkerAction, MarkerType, MARKER_TYPE_NAMES } from "./markers";
+import { Marker, MarkerAction, MarkerType, MARKER_TYPE_NAMES, type TransformStamped } from "./markers";
+import { lookupTransform, knownFrames } from "./tf";
 
 export interface MarkerObjectMeta {
   key: string;       // `${ns}:${id}`
@@ -18,6 +19,7 @@ export interface Scene3DStats {
   namespaces: Record<string, number>;
   types: Record<string, number>;
   objects: MarkerObjectMeta[];
+  frames: string[];
 }
 
 interface Scene3DViewProps {
@@ -29,16 +31,22 @@ interface Scene3DViewProps {
   showGrid?: boolean;
   gridSize?: number;
   showAxes?: boolean;
+  showTfAxes?: boolean;
   visibleNs?: Record<string, boolean>;
   visibleObjects?: Record<string, boolean>;
   cameraPreset?: { id: number; type: "reset" | "top" | "front" | "side" } | null;
+  tfByChild?: Record<string, TransformStamped>;
+  fixedFrame?: string;
+  onFixedFrameChange?: (frame: string) => void;
 }
 
 interface MarkerRecord {
   marker: Marker;
   object: THREE.Object3D;
+  frameRoot: THREE.Group;
   expireTime: number;
   lastText?: string;
+  tfOk: boolean;
 }
 
 // ============================================================================
@@ -570,6 +578,26 @@ function disposeHierarchy(obj: THREE.Object3D) {
   });
 }
 
+function markerFrameId(m: Marker): string {
+  return m.frame_id || m.header?.frame_id || "world";
+}
+
+function applyFramePose(root: THREE.Group, marker: Marker, tfByChild: Record<string, TransformStamped>, fixedFrame: string): boolean {
+  const T = lookupTransform(tfByChild, fixedFrame, markerFrameId(marker));
+  if (!T) return false;
+  root.position.set(T.translation.x, T.translation.y, T.translation.z);
+  const q = T.rotation;
+  root.quaternion.set(q.x, q.y, q.z, q.w);
+  return true;
+}
+
+function syncRecordVisible(rec: MarkerRecord, visibleNs: Record<string, boolean>, visibleObjects: Record<string, boolean>, key: string) {
+  const ns = rec.marker.ns || "default";
+  const isNsVis = visibleNs[ns] !== false;
+  const isObjVis = visibleObjects[key] !== false;
+  rec.frameRoot.visible = rec.tfOk && isNsVis && isObjVis;
+}
+
 // ============================================================================
 // Main Scene3DView Component
 // ============================================================================
@@ -585,6 +613,10 @@ export function Scene3DView({
   visibleNs = {},
   visibleObjects = {},
   cameraPreset = null,
+  showTfAxes = true,
+  tfByChild = {},
+  fixedFrame = "world",
+  onFixedFrameChange,
 }: Scene3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -594,10 +626,13 @@ export function Scene3DView({
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const axesGroupRef = useRef<THREE.Group | null>(null);
   const markerMapRef = useRef<Map<string, MarkerRecord>>(new Map());
+  const tfAxesRef = useRef<Map<string, THREE.Group>>(new Map());
 
   // Cached refs to decouple high-frequency updates from closures
   const visibleNsRef = useRef<Record<string, boolean>>(visibleNs);
   const visibleObjectsRef = useRef<Record<string, boolean>>(visibleObjects);
+  const tfByChildRef = useRef(tfByChild);
+  const fixedFrameRef = useRef(fixedFrame);
   const statsDirtyRef = useRef<boolean>(true);
   const lastStatsReportRef = useRef<number>(0);
 
@@ -644,7 +679,11 @@ export function Scene3DView({
       const count = markerMapRef.current.size;
       setActiveCount(count);
       if (onActiveCountChange) onActiveCountChange(count);
-      if (onStatsChange) onStatsChange({ count, namespaces, types, objects });
+      const markerFrames = [...new Set(
+        [...markerMapRef.current.values()].map((rec) => rec.marker.frame_id || rec.marker.header?.frame_id || "world"),
+      )];
+      const frames = knownFrames(tfByChildRef.current, [fixedFrameRef.current, ...markerFrames]);
+      if (onStatsChange) onStatsChange({ count, namespaces, types, objects, frames });
     },
     [onActiveCountChange, onStatsChange]
   );
@@ -737,8 +776,8 @@ export function Scene3DView({
       let changed = false;
       markerMapRef.current.forEach((rec, key) => {
         if (rec.expireTime > 0 && nowMs > rec.expireTime) {
-          scene.remove(rec.object);
-          disposeHierarchy(rec.object);
+          scene.remove(rec.frameRoot);
+          disposeHierarchy(rec.frameRoot);
           markerMapRef.current.delete(key);
           changed = true;
         }
@@ -829,12 +868,38 @@ export function Scene3DView({
     visibleNsRef.current = visibleNs;
     visibleObjectsRef.current = visibleObjects;
     markerMapRef.current.forEach((rec, key) => {
-      const ns = rec.marker.ns || "default";
-      const isNsVis = visibleNs ? visibleNs[ns] !== false : true;
-      const isObjVis = visibleObjects ? visibleObjects[key] !== false : true;
-      rec.object.visible = isNsVis && isObjVis;
+      syncRecordVisible(rec, visibleNs, visibleObjects, key);
     });
   }, [visibleNs, visibleObjects]);
+
+  useEffect(() => {
+    tfByChildRef.current = tfByChild;
+    fixedFrameRef.current = fixedFrame;
+    const scene = sceneRef.current;
+    markerMapRef.current.forEach((rec, key) => {
+      rec.tfOk = applyFramePose(rec.frameRoot, rec.marker, tfByChild, fixedFrame);
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
+    });
+
+    tfAxesRef.current.forEach((g) => {
+      scene?.remove(g);
+      disposeHierarchy(g);
+    });
+    tfAxesRef.current.clear();
+    if (scene && showTfAxes) {
+      const names = knownFrames(tfByChild, [fixedFrame]);
+      names.forEach((name) => {
+        const T = lookupTransform(tfByChild, fixedFrame, name);
+        if (!T) return;
+        const axes = createAxesArrows(0.28, 0.012, 0.028, 0.07);
+        axes.position.set(T.translation.x, T.translation.y, T.translation.z);
+        axes.quaternion.set(T.rotation.x, T.rotation.y, T.rotation.z, T.rotation.w);
+        scene.add(axes);
+        tfAxesRef.current.set(name, axes);
+      });
+    }
+    reportStats(false);
+  }, [tfByChild, fixedFrame, showTfAxes, reportStats]);
 
   // Process Incoming Markers & Actions with In-Place Mutation
   const processMarker = useCallback(
@@ -850,8 +915,8 @@ export function Scene3DView({
       if (action === MarkerAction.DELETEALL) {
         markerMapRef.current.forEach((rec, k) => {
           if (!m.ns || rec.marker.ns === m.ns) {
-            scene.remove(rec.object);
-            disposeHierarchy(rec.object);
+            scene.remove(rec.frameRoot);
+            disposeHierarchy(rec.frameRoot);
             markerMapRef.current.delete(k);
           }
         });
@@ -862,8 +927,8 @@ export function Scene3DView({
       if (action === MarkerAction.DELETE) {
         const existing = markerMapRef.current.get(key);
         if (existing) {
-          scene.remove(existing.object);
-          disposeHierarchy(existing.object);
+          scene.remove(existing.frameRoot);
+          disposeHierarchy(existing.frameRoot);
           markerMapRef.current.delete(key);
           statsDirtyRef.current = true;
         }
@@ -873,37 +938,41 @@ export function Scene3DView({
       // Check if existing object can be mutated in-place
       const existing = markerMapRef.current.get(key);
       if (existing && updateMarkerObject(existing, m)) {
-        const isNsVis = visibleNsRef.current ? visibleNsRef.current[ns] !== false : true;
-        const isObjVis = visibleObjectsRef.current ? visibleObjectsRef.current[key] !== false : true;
-        existing.object.visible = isNsVis && isObjVis;
+        existing.marker = m;
+        existing.tfOk = applyFramePose(existing.frameRoot, m, tfByChildRef.current, fixedFrameRef.current);
+        syncRecordVisible(existing, visibleNsRef.current, visibleObjectsRef.current, key);
         const lifetimeMs = (m.lifetime || 0) * 1000;
         existing.expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
-        existing.marker = m;
+        existing.lastText = m.text;
         statsDirtyRef.current = true;
         return;
       }
 
       // If cannot update in-place, recreate
       if (existing) {
-        scene.remove(existing.object);
-        disposeHierarchy(existing.object);
+        scene.remove(existing.frameRoot);
+        disposeHierarchy(existing.frameRoot);
       }
 
       const obj = createMarkerObject(m);
-      const isNsVis = visibleNsRef.current ? visibleNsRef.current[ns] !== false : true;
-      const isObjVis = visibleObjectsRef.current ? visibleObjectsRef.current[key] !== false : true;
-      obj.visible = isNsVis && isObjVis;
-      scene.add(obj);
+      const frameRoot = new THREE.Group();
+      frameRoot.add(obj);
+      const tfOk = applyFramePose(frameRoot, m, tfByChildRef.current, fixedFrameRef.current);
+      scene.add(frameRoot);
 
       const lifetimeMs = (m.lifetime || 0) * 1000;
       const expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
 
-      markerMapRef.current.set(key, {
+      const rec: MarkerRecord = {
         marker: m,
         object: obj,
+        frameRoot,
         expireTime,
         lastText: m.text,
-      });
+        tfOk,
+      };
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
+      markerMapRef.current.set(key, rec);
 
       statsDirtyRef.current = true;
     },
@@ -924,8 +993,8 @@ export function Scene3DView({
       const scene = sceneRef.current;
       if (scene) {
         markerMapRef.current.forEach((rec) => {
-          scene.remove(rec.object);
-          disposeHierarchy(rec.object);
+          scene.remove(rec.frameRoot);
+          disposeHierarchy(rec.frameRoot);
         });
       }
       markerMapRef.current.clear();
@@ -938,7 +1007,17 @@ export function Scene3DView({
       <div ref={mountRef} className="scene3d-mount" />
       <div className="scene3d-badge">
         <span className={activeCount > 0 ? "scene3d-dot on" : "scene3d-dot"} />
-        {activeCount} 标记 · base_link
+        {activeCount} 标记 ·
+        <select
+          className="scene3d-frame-select"
+          value={fixedFrame}
+          title="当前查看坐标系"
+          onChange={(event) => onFixedFrameChange?.(event.target.value)}
+        >
+          {knownFrames(tfByChild, [fixedFrame, "world"]).map((frame) => (
+            <option key={frame} value={frame}>{frame}</option>
+          ))}
+        </select>
       </div>
       <div className="scene3d-axes">
         <span><b className="axis-x">X</b> 前</span>

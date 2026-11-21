@@ -82,8 +82,10 @@ export function useWorkbenchData({
   const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
   const [visibleObjects, setVisibleObjects] = useState<Record<string, boolean>>({});
   const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>(null);
-  const [scene3DStats, setScene3DStats] = useState<Scene3DStats>({ count: 0, namespaces: {}, types: {}, objects: [] });
+  const [scene3DStats, setScene3DStats] = useState<Scene3DStats>({ count: 0, namespaces: {}, types: {}, objects: [], frames: [] });
   const [tfByChild, setTfByChild] = useState<Record<string, TransformStamped>>({});
+  const [fixedFrame, setFixedFrame] = useState("world");
+  const [showTfAxes, setShowTfAxes] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -291,7 +293,7 @@ export function useWorkbenchData({
 
   const clearMarkers = useCallback(() => {
     setMarkers([]);
-    setScene3DStats({ count: 0, namespaces: {}, types: {}, objects: [] });
+    setScene3DStats({ count: 0, namespaces: {}, types: {}, objects: [], frames: [] });
   }, []);
 
   useEffect(() => {
@@ -566,6 +568,7 @@ export function useWorkbenchData({
       setLogs([]);
       tfBuf.current = [];
       setTfByChild({});
+      setFixedFrame("world");
       setImages((previous) => {
         Object.values(previous).forEach((url) => {
           if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -625,6 +628,8 @@ export function useWorkbenchData({
     cameraPreset, setCameraPreset,
     scene3DStats, setScene3DStats,
     tfByChild, setTfByChild,
+    fixedFrame, setFixedFrame,
+    showTfAxes, setShowTfAxes,
     canvasRef,
     hostRef,
     chartRef,
