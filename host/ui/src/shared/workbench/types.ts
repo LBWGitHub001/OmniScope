@@ -23,7 +23,14 @@ export type DataBus = {
 };
 
 export type PanelKind = "plot" | "log" | "image" | "3d" | "xy";
-export type PanelState = { kind: PanelKind; imgSel: string; xySel?: string };
+export type PanelState = {
+  id: string;
+  kind: PanelKind;
+  imgSel: string;
+  xySel?: string;
+  /** 本面板勾选的曲线。缺省则跟随全局 fields.on（默认左图）。 */
+  plotOn?: Record<string, boolean>;
+};
 export type LogLine = { level: string; msg: string; ts?: number; t?: number };
 export type LogLevels = { DEBUG: boolean; INFO: boolean; WARN: boolean; ERROR: boolean };
 export type ViewMode = "sliding" | "centered" | "paused";

@@ -11,12 +11,18 @@ import type { DataBus, PanelKind, PanelState } from "./types";
 type LayoutMode = "grid" | "horizontal";
 type PreviousView = { panels: PanelState[]; layout: LayoutMode };
 
+let paneSeq = 0;
+function nextPaneId() {
+  paneSeq += 1;
+  return `pane-${paneSeq}`;
+}
+
 function defaultPanels(): PanelState[] {
   return [
-    { kind: "plot", imgSel: "" },
-    { kind: "3d", imgSel: "" },
-    { kind: "image", imgSel: "" },
-    { kind: "log", imgSel: "" },
+    { id: "default-plot", kind: "plot", imgSel: "" },
+    { id: "default-3d", kind: "3d", imgSel: "" },
+    { id: "default-image", kind: "image", imgSel: "" },
+    { id: "default-log", kind: "log", imgSel: "" },
   ];
 }
 
@@ -38,8 +44,7 @@ export function DebugWorkbench({
   const [previousView, setPreviousView] = useState<PreviousView | null>(null);
   const [sidebar, setSidebar] = useState(true);
   const [selectedPaneIdx, setSelectedPaneIdx] = useState(0);
-  const plotIndex = panels.findIndex((panel) => panel.kind === "plot");
-  const data = useWorkbenchData({ panels, setPanels, plotIndex, busOut, imageSubscribe, replay, cursorT, onSeek });
+  const data = useWorkbenchData({ panels, setPanels, busOut, imageSubscribe, replay, cursorT, onSeek });
 
   const clampedSelectedIdx = Math.min(selectedPaneIdx, Math.max(0, panels.length - 1));
   const activeKind = panels[clampedSelectedIdx]?.kind || "plot";
@@ -59,6 +64,9 @@ export function DebugWorkbench({
         kind,
         imgSel: kind === "image" && !panel.imgSel ? data.names[0] || "" : panel.imgSel,
         xySel: kind === "xy" && !panel.xySel ? data.xyChannels[0] || "" : panel.xySel,
+        plotOn: kind === "plot"
+          ? (panel.kind === "plot" ? panel.plotOn : {})
+          : undefined,
       };
     }));
   };
@@ -76,7 +84,32 @@ export function DebugWorkbench({
 
   return (
     <div className="workbench-root">
-      <WorkbenchSidebar open={sidebar} onToggle={() => setSidebar((value) => !value)} activeKind={activeKind} data={data} />
+        <WorkbenchSidebar
+          open={sidebar}
+          onToggle={() => setSidebar((value) => !value)}
+          activeKind={activeKind}
+          data={data}
+          fieldOn={(name) => {
+            const panel = panels[clampedSelectedIdx];
+            if (panel?.kind === "plot" && panel.plotOn) return panel.plotOn[name] === true;
+            return data.fields[name]?.on === true;
+          }}
+          onFieldOn={(name, on) => {
+            const panel = panels[clampedSelectedIdx];
+            if (panel?.kind === "plot" && panel.plotOn) {
+              setPanels((previous) => previous.map((item, itemIndex) => (
+                itemIndex === clampedSelectedIdx
+                  ? { ...item, plotOn: { ...item.plotOn, [name]: on } }
+                  : item
+              )));
+              return;
+            }
+            data.setFields((previous) => ({
+              ...previous,
+              [name]: { ...previous[name], on },
+            }));
+          }}
+        />
       <div className="workbench-main">
         <div className={`tile-root ${layoutMode === "grid" && panels.length === 4 ? "tile-grid-2x2" : ""}`}>
           {panels.map((panel, index) => {
@@ -87,7 +120,7 @@ export function DebugWorkbench({
             return (
               <div
                 className={`tile-pane ${clampedSelectedIdx === index ? "active-tile" : ""}`}
-                key={index}
+                key={panel.id}
                 onClick={() => setSelectedPaneIdx(index)}
               >
                 <div className="tile-head">
@@ -132,11 +165,20 @@ export function DebugWorkbench({
                       title="向右拆分"
                       disabled={panels.length >= 6}
                       onClick={() => {
+                        const source = panels[index];
+                        const plotOn: Record<string, boolean> = source?.plotOn
+                          ? { ...source.plotOn }
+                          : Object.fromEntries(
+                              Object.entries(data.fields)
+                                .filter(([, meta]) => meta.on)
+                                .map(([name]) => [name, true]),
+                            );
                         setPanels((previous) => {
                           const next = [...previous];
-                          next.splice(index + 1, 0, { kind: "plot", imgSel: "" });
+                          next.splice(index + 1, 0, { id: nextPaneId(), kind: "plot", imgSel: "", plotOn });
                           return next.slice(0, 6);
                         });
+                        setSelectedPaneIdx(Math.min(index + 1, 5));
                       }}
                     >拆分</button>
                     {panels.length > 1 && (
@@ -152,14 +194,14 @@ export function DebugWorkbench({
                 <div className="tile-content">
                   {kind === "plot" && (
                     <TimeSeriesPane
-                      active={index === plotIndex}
-                      hostRef={data.hostRef}
-                      canvasRef={data.canvasRef}
-                      chartRef={data.chartRef}
+                      paneId={panel.id}
+                      registerPlotChart={data.registerPlotChart}
+                      unregisterPlotChart={data.unregisterPlotChart}
                       replayRef={data.replayRef}
                       cursorRef={data.cursorRef}
                       seekRef={data.seekRef}
                       dragCursor={data.dragCursor}
+                      beginManualView={data.beginManualView}
                     />
                   )}
                   {kind === "log" && (

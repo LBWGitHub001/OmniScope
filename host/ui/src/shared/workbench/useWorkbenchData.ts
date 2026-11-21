@@ -34,7 +34,6 @@ Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, z
 type WorkbenchDataOptions = {
   panels: PanelState[];
   setPanels: Dispatch<SetStateAction<PanelState[]>>;
-  plotIndex: number;
   busOut: (bus: DataBus) => void;
   imageSubscribe?: (names: string[]) => void;
   replay: boolean;
@@ -45,7 +44,6 @@ type WorkbenchDataOptions = {
 export function useWorkbenchData({
   panels,
   setPanels,
-  plotIndex,
   busOut,
   imageSubscribe,
   replay,
@@ -87,9 +85,7 @@ export function useWorkbenchData({
   const [fixedFrame, setFixedFrame] = useState("");
   const [showTfAxes, setShowTfAxes] = useState(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const hostRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<Chart | null>(null);
+  const plotChartsRef = useRef(new Map<string, Chart>());
   const seriesRef = useRef<Record<string, { x: number; y: number }[]>>({});
   const fieldsRef = useRef(fields);
   const formulasRef = useRef(formulas);
@@ -109,7 +105,6 @@ export function useWorkbenchData({
   const cursorRef = useRef<number | null>(cursorT);
   const seekRef = useRef(onSeek);
   const dragCursor = useRef(false);
-  const mouseX = useRef(0);
   const maxLogBufferRef = useRef(maxLogBuffer);
   const imagesRef = useRef(images);
 
@@ -122,53 +117,67 @@ export function useWorkbenchData({
   imagesRef.current = images;
   viewRef.current = { ...viewRef.current, mode, win, history };
 
+  const plotOnById = useRef<Record<string, Record<string, boolean> | undefined>>({});
+  plotOnById.current = {};
+  for (const panel of panels) {
+    if (panel.kind === "plot") plotOnById.current[panel.id] = panel.plotOn;
+  }
+
+  const fieldVisible = (paneId: string, key: string) => {
+    const filter = plotOnById.current[paneId];
+    if (filter) return filter[key] === true;
+    return fieldsRef.current[key]?.on !== false;
+  };
+
   const syncChart = useCallback(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
     const meta = fieldsRef.current;
-    const labels = Object.keys(seriesRef.current).filter((key) => meta[key]?.on !== false);
-    const normalDatasets = labels.map((label) => ({
-      label,
-      data: seriesRef.current[label],
-      borderColor: meta[label]?.color || COLORS[0],
-      backgroundColor: meta[label]?.color || COLORS[0],
-      pointRadius: 0,
-      borderWidth: 1.6,
-    }));
-    const formulaDatasets = formulasRef.current
-      .filter((formula) => formula.enabled && formula.fn && formula.source && seriesRef.current[formula.source])
-      .map((formula) => {
-        const rawPoints = seriesRef.current[formula.source] || [];
-        const data = rawPoints
-          .map((point) => {
-            const y = formula.fn!(point.y);
-            return Number.isFinite(y) ? { x: point.x, y } : null;
-          })
-          .filter(Boolean);
-        return {
-          label: `f(x): ${formula.expr} [x=${formula.source}]`,
-          data: data as any,
-          borderColor: formula.color,
-          backgroundColor: "transparent",
-          pointRadius: 0,
-          borderWidth: 1.6,
-          borderDash: [5, 4],
-        };
-      });
-    chart.data.datasets = [...normalDatasets, ...formulaDatasets];
     const view = viewRef.current;
     const follow = replayRef.current && cursorRef.current != null ? cursorRef.current : lastX.current;
-    if (!view.manual && view.mode !== "paused") {
-      const windowSeconds = view.win || 10;
-      if (view.mode === "centered") {
-        chart.options.scales!.x!.min = follow - windowSeconds / 2;
-        chart.options.scales!.x!.max = follow + windowSeconds / 2;
-      } else {
-        chart.options.scales!.x!.min = Math.max(0, follow - windowSeconds);
-        chart.options.scales!.x!.max = Math.max(windowSeconds, follow);
+    const windowSeconds = view.win || 10;
+    for (const [paneId, chart] of plotChartsRef.current) {
+      const labels = Object.keys(seriesRef.current).filter((key) => fieldVisible(paneId, key));
+      const normalDatasets = labels.map((label) => ({
+        label,
+        data: seriesRef.current[label],
+        borderColor: meta[label]?.color || COLORS[0],
+        backgroundColor: meta[label]?.color || COLORS[0],
+        pointRadius: 0,
+        borderWidth: 1.6,
+      }));
+      const formulaDatasets = formulasRef.current
+        .filter((formula) =>
+          formula.enabled && formula.fn && formula.source && seriesRef.current[formula.source]
+          && fieldVisible(paneId, formula.source))
+        .map((formula) => {
+          const rawPoints = seriesRef.current[formula.source] || [];
+          const data = rawPoints
+            .map((point) => {
+              const y = formula.fn!(point.y);
+              return Number.isFinite(y) ? { x: point.x, y } : null;
+            })
+            .filter(Boolean);
+          return {
+            label: `f(x): ${formula.expr} [x=${formula.source}]`,
+            data: data as any,
+            borderColor: formula.color,
+            backgroundColor: "transparent",
+            pointRadius: 0,
+            borderWidth: 1.6,
+            borderDash: [5, 4],
+          };
+        });
+      chart.data.datasets = [...normalDatasets, ...formulaDatasets];
+      if (!view.manual && view.mode !== "paused") {
+        if (view.mode === "centered") {
+          chart.options.scales!.x!.min = follow - windowSeconds / 2;
+          chart.options.scales!.x!.max = follow + windowSeconds / 2;
+        } else {
+          chart.options.scales!.x!.min = Math.max(0, follow - windowSeconds);
+          chart.options.scales!.x!.max = Math.max(windowSeconds, follow);
+        }
       }
+      chart.update("none");
     }
-    chart.update("none");
   }, []);
 
   const flush = useCallback(() => {
@@ -245,6 +254,20 @@ export function useWorkbenchData({
     schedule();
   }, [schedule]);
 
+  const registerPlotChart = useCallback((id: string, chart: Chart) => {
+    plotChartsRef.current.set(id, chart);
+    invalidateChart();
+  }, [invalidateChart]);
+
+  const unregisterPlotChart = useCallback((id: string) => {
+    plotChartsRef.current.delete(id);
+  }, []);
+
+  const beginManualView = useCallback(() => {
+    viewRef.current = { ...viewRef.current, manual: true };
+    setManual(true);
+  }, []);
+
   const addFormula = useCallback(() => {
     const expr = formulaDraft.trim();
     if (!expr) return;
@@ -308,142 +331,7 @@ export function useWorkbenchData({
 
   useEffect(() => {
     invalidateChart();
-  }, [mode, win, history, manual, fields, cursorT, invalidateChart]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const host = hostRef.current;
-    if (plotIndex < 0 || !canvas || !host) return;
-    const chart = new Chart(canvas, {
-      type: "line",
-      plugins: [
-        {
-          id: "replayCursor",
-          afterDraw(currentChart) {
-            const time = cursorRef.current;
-            if (!replayRef.current || time == null || !Number.isFinite(time)) return;
-            const xScale = currentChart.scales.x;
-            if (!xScale) return;
-            const x = xScale.getPixelForValue(time);
-            const area = currentChart.chartArea;
-            if (x < area.left - 2 || x > area.right + 2) return;
-            const context = currentChart.ctx;
-            context.save();
-            context.beginPath();
-            context.moveTo(x, area.top);
-            context.lineTo(x, area.bottom);
-            context.lineWidth = dragCursor.current ? 2.5 : 1.5;
-            context.strokeStyle = "#ff7043";
-            context.stroke();
-            context.beginPath();
-            context.moveTo(x, area.top);
-            context.lineTo(x - 6, area.top - 7);
-            context.lineTo(x + 6, area.top - 7);
-            context.closePath();
-            context.fillStyle = "#ff7043";
-            context.fill();
-            context.restore();
-          },
-        },
-      ],
-      data: { datasets: [] },
-      options: {
-        animation: false,
-        responsive: false,
-        maintainAspectRatio: false,
-        onClick(event, _elements, currentChart) {
-          if (!replayRef.current || !seekRef.current || dragCursor.current) return;
-          const xScale = currentChart.scales.x;
-          if (!xScale || event.x == null) return;
-          const current = cursorRef.current;
-          if (current != null) {
-            const cursorX = xScale.getPixelForValue(current);
-            if (Math.abs(event.x - cursorX) <= 12) return;
-          }
-          const time = xScale.getValueForPixel(event.x);
-          if (time != null && Number.isFinite(time)) seekRef.current(time);
-        },
-        plugins: {
-          legend: { display: false },
-          zoom: {
-            pan: {
-              enabled: true,
-              mode: "x" as const,
-              overScaleMode: "y" as const,
-              onPanStart: () => {
-                if (dragCursor.current) return false;
-                viewRef.current = { ...viewRef.current, manual: true };
-                setManual(true);
-              },
-            },
-            zoom: {
-              wheel: { enabled: true },
-              pinch: { enabled: true },
-              mode: () => (mouseX.current < 50 ? "y" : "x"),
-              overScaleMode: "y" as const,
-              onZoomStart: () => {
-                if (dragCursor.current) return false;
-                viewRef.current = { ...viewRef.current, manual: true };
-                setManual(true);
-              },
-            },
-            limits: { x: { min: 0 } },
-          },
-        },
-        scales: {
-          x: {
-            type: "linear",
-            min: 0,
-            max: 10,
-            ticks: { color: "#8e8e9c", font: { size: 11, family: "ui-monospace, monospace" } },
-            grid: { color: "rgba(255,255,255,0.06)" },
-            border: { color: "rgba(255,255,255,0.08)" },
-          },
-          y: {
-            type: "linear",
-            ticks: { color: "#8e8e9c", font: { size: 11, family: "ui-monospace, monospace" } },
-            grid: { color: "rgba(255,255,255,0.06)" },
-            border: { color: "rgba(255,255,255,0.08)" },
-          },
-        },
-      },
-    });
-    chartRef.current = chart;
-    const onMove = (event: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      mouseX.current = event.clientX - rect.left;
-    };
-    canvas.addEventListener("mousemove", onMove);
-    let lastWidth = 0;
-    let lastHeight = 0;
-    const fit = () => {
-      const width = Math.floor(host.clientWidth);
-      const height = Math.floor(host.clientHeight);
-      if (width < 2 || height < 2) return;
-      if (Math.abs(width - lastWidth) <= 1 && Math.abs(height - lastHeight) <= 1) return;
-      lastWidth = width;
-      lastHeight = height;
-      chart.resize(width, height);
-    };
-    let resizeFrame = 0;
-    const observer = new ResizeObserver(() => {
-      if (resizeFrame) return;
-      resizeFrame = requestAnimationFrame(() => {
-        resizeFrame = 0;
-        fit();
-      });
-    });
-    observer.observe(host);
-    fit();
-    syncChart();
-    return () => {
-      if (resizeFrame) cancelAnimationFrame(resizeFrame);
-      canvas.removeEventListener("mousemove", onMove);
-      observer.disconnect();
-      chart.destroy();
-      chartRef.current = null;
-    };
-  }, [plotIndex, syncChart]);
+  }, [mode, win, history, manual, fields, cursorT, panels, invalidateChart]);
 
   const names = [...new Set([...streams, ...Object.keys(images)])].sort();
   const wantedImages = [
@@ -561,9 +449,9 @@ export function useWorkbenchData({
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       });
       imgBuf.current = {};
-      if (chartRef.current) {
-        chartRef.current.data.datasets = [];
-        chartRef.current.update("none");
+      for (const chart of plotChartsRef.current.values()) {
+        chart.data.datasets = [];
+        chart.update("none");
       }
       setLogs([]);
       tfBuf.current = [];
@@ -580,8 +468,9 @@ export function useWorkbenchData({
     resetView() {
       viewRef.current = { ...viewRef.current, manual: false };
       setManual(false);
-      const chart = chartRef.current as (Chart & { resetZoom?: () => void }) | null;
-      chart?.resetZoom?.();
+      for (const chart of plotChartsRef.current.values()) {
+        (chart as Chart & { resetZoom?: () => void }).resetZoom?.();
+      }
       chartDirty.current = true;
       schedule();
     },
@@ -637,9 +526,9 @@ export function useWorkbenchData({
     tfByChild, setTfByChild,
     fixedFrame, setFixedFrame,
     showTfAxes, setShowTfAxes,
-    canvasRef,
-    hostRef,
-    chartRef,
+    registerPlotChart,
+    unregisterPlotChart,
+    beginManualView,
     replayRef,
     cursorRef,
     seekRef,

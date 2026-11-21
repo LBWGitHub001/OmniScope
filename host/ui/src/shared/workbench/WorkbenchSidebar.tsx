@@ -11,6 +11,8 @@ type WorkbenchSidebarProps = {
   onToggle: () => void;
   activeKind: PanelKind;
   data: WorkbenchData;
+  fieldOn?: (name: string) => boolean;
+  onFieldOn?: (name: string, on: boolean) => void;
 };
 
 const TITLE: Record<PanelKind, string> = {
@@ -173,7 +175,14 @@ function GroupCheck({
   );
 }
 
-export function WorkbenchSidebar({ open, onToggle, activeKind, data }: WorkbenchSidebarProps) {
+export function WorkbenchSidebar({
+  open,
+  onToggle,
+  activeKind,
+  data,
+  fieldOn,
+  onFieldOn,
+}: WorkbenchSidebarProps) {
   return (
     <aside className={open ? "dbg-side" : "dbg-side collapsed"}>
       <button type="button" className="side-toggle" onClick={onToggle} title={open ? "收起设置" : "展开设置"}>
@@ -225,11 +234,17 @@ export function WorkbenchSidebar({ open, onToggle, activeKind, data }: Workbench
                   <label key={name} className="field-row">
                     <input
                       type="checkbox"
-                      checked={meta.on}
-                      onChange={(event) => data.setFields((previous) => ({
-                        ...previous,
-                        [name]: { ...previous[name], on: event.target.checked },
-                      }))}
+                      checked={fieldOn ? fieldOn(name) : meta.on}
+                      onChange={(event) => {
+                        if (onFieldOn) {
+                          onFieldOn(name, event.target.checked);
+                          return;
+                        }
+                        data.setFields((previous) => ({
+                          ...previous,
+                          [name]: { ...previous[name], on: event.target.checked },
+                        }));
+                      }}
                     />
                     <span className="swatch" style={{ background: meta.color }} />
                     <span className="ellipsis" title={name}>{name}</span>
