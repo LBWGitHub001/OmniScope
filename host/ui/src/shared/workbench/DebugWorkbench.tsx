@@ -195,7 +195,6 @@ export function DebugWorkbench({
                       onClear={data.clearMarkers}
                       showGrid={data.show3DGrid}
                       gridSize={data.gridSize3D}
-                      showAxes={data.show3DAxes}
                       showTfAxes={data.showTfAxes}
                       visibleNs={data.visibleNs}
                       visibleObjects={data.visibleObjects}

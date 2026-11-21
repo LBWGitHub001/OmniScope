@@ -291,10 +291,6 @@ export function WorkbenchSidebar({ open, onToggle, activeKind, data }: Workbench
               <div className="side-sec">
                 <div className="side-h">场景</div>
                 <label>
-                  <input type="checkbox" checked={data.show3DAxes} onChange={(event) => data.setShow3DAxes(event.target.checked)} />
-                  显示坐标轴
-                </label>
-                <label>
                   <input type="checkbox" checked={data.show3DGrid} onChange={(event) => data.setShow3DGrid(event.target.checked)} />
                   显示网格
                 </label>

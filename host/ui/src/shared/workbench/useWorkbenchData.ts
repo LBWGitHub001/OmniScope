@@ -78,7 +78,6 @@ export function useWorkbenchData({
 
   const [show3DGrid, setShow3DGrid] = useState(true);
   const [gridSize3D, setGridSize3D] = useState(20);
-  const [show3DAxes, setShow3DAxes] = useState(true);
   const [selectedNsFilter, setSelectedNsFilter] = useState("all");
   const [visibleNs, setVisibleNs] = useState<Record<string, boolean>>({});
   const [visibleObjects, setVisibleObjects] = useState<Record<string, boolean>>({});
@@ -630,7 +629,6 @@ export function useWorkbenchData({
     xyShowPeak, setXyShowPeak,
     show3DGrid, setShow3DGrid,
     gridSize3D, setGridSize3D,
-    show3DAxes, setShow3DAxes,
     selectedNsFilter, setSelectedNsFilter,
     visibleNs, setVisibleNs,
     visibleObjects, setVisibleObjects,

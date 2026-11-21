@@ -30,7 +30,6 @@ interface Scene3DViewProps {
   className?: string;
   showGrid?: boolean;
   gridSize?: number;
-  showAxes?: boolean;
   showTfAxes?: boolean;
   visibleNs?: Record<string, boolean>;
   visibleObjects?: Record<string, boolean>;
@@ -596,14 +595,11 @@ function syncRecordVisible(
   visibleNs: Record<string, boolean>,
   visibleObjects: Record<string, boolean>,
   key: string,
-  fixedFrame: string,
 ) {
   const ns = rec.marker.ns || "default";
   const isNsVis = visibleNs[ns] !== false;
   const isObjVis = visibleObjects[key] !== false;
-  const frame = markerFrameId(rec.marker);
-  const inView = !frame || !fixedFrame || frame === fixedFrame;
-  rec.frameRoot.visible = rec.tfOk && isNsVis && isObjVis && inView;
+  rec.frameRoot.visible = rec.tfOk && isNsVis && isObjVis;
 }
 
 // ============================================================================
@@ -617,7 +613,6 @@ export function Scene3DView({
   className = "",
   showGrid = true,
   gridSize = 20,
-  showAxes = true,
   visibleNs = {},
   visibleObjects = {},
   cameraPreset = null,
@@ -632,7 +627,6 @@ export function Scene3DView({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
-  const axesGroupRef = useRef<THREE.Group | null>(null);
   const markerMapRef = useRef<Map<string, MarkerRecord>>(new Map());
   const tfAxesRef = useRef<Map<string, THREE.Group>>(new Map());
 
@@ -749,12 +743,6 @@ export function Scene3DView({
     scene.add(grid);
     gridRef.current = grid;
 
-    // 3D Triad Solid Arrows Coordinate Helper
-    const axes = createAxesArrows(0.8, 0.03, 0.07, 0.18);
-    axes.visible = showAxes !== false;
-    scene.add(axes);
-    axesGroupRef.current = axes;
-
     // Defer renderer writes so observer callbacks do not trigger resize loops.
     let resizeFrame = 0;
     const resizeObserver = new ResizeObserver((entries) => {
@@ -835,13 +823,6 @@ export function Scene3DView({
     gridRef.current = grid;
   }, [gridSize, showGrid]);
 
-  // Update 3D Axes Visibility
-  useEffect(() => {
-    if (axesGroupRef.current) {
-      axesGroupRef.current.visible = showAxes !== false;
-    }
-  }, [showAxes]);
-
   // React to Camera Presets
   const lastPresetIdRef = useRef<number>(0);
   useEffect(() => {
@@ -876,7 +857,7 @@ export function Scene3DView({
     visibleNsRef.current = visibleNs;
     visibleObjectsRef.current = visibleObjects;
     markerMapRef.current.forEach((rec, key) => {
-      syncRecordVisible(rec, visibleNs, visibleObjects, key, fixedFrameRef.current);
+      syncRecordVisible(rec, visibleNs, visibleObjects, key);
     });
   }, [visibleNs, visibleObjects]);
 
@@ -886,7 +867,7 @@ export function Scene3DView({
     const scene = sceneRef.current;
     markerMapRef.current.forEach((rec, key) => {
       rec.tfOk = applyFramePose(rec.frameRoot, rec.marker, tfByChild, fixedFrame);
-      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrame);
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
     });
 
     tfAxesRef.current.forEach((g) => {
@@ -897,6 +878,7 @@ export function Scene3DView({
     if (scene && showTfAxes) {
       const names = knownFrames(tfByChild, [fixedFrame]);
       names.forEach((name) => {
+        if (name === fixedFrame) return;
         const T = lookupTransform(tfByChild, fixedFrame, name);
         if (!T) return;
         const axes = createAxesArrows(0.28, 0.012, 0.028, 0.07);
@@ -948,7 +930,7 @@ export function Scene3DView({
       if (existing && updateMarkerObject(existing, m)) {
         existing.marker = m;
         existing.tfOk = applyFramePose(existing.frameRoot, m, tfByChildRef.current, fixedFrameRef.current);
-        syncRecordVisible(existing, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrameRef.current);
+        syncRecordVisible(existing, visibleNsRef.current, visibleObjectsRef.current, key);
         const lifetimeMs = (m.lifetime || 0) * 1000;
         existing.expireTime = lifetimeMs > 0 ? Date.now() + lifetimeMs : 0;
         existing.lastText = m.text;
@@ -979,7 +961,7 @@ export function Scene3DView({
         lastText: m.text,
         tfOk,
       };
-      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key, fixedFrameRef.current);
+      syncRecordVisible(rec, visibleNsRef.current, visibleObjectsRef.current, key);
       markerMapRef.current.set(key, rec);
 
       statsDirtyRef.current = true;
